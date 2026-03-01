@@ -182,6 +182,7 @@ export const CANDLES: CandleSpec[] = [
 
 export const STOCK_CARDS: StockCardModel[] = STOCK_SYMBOLS.map((symbol) => ({
   symbol,
+  percentChange: 0,
   timeRanges: TIME_RANGES,
   activeRange: ACTIVE_RANGE,
   yAxisLabelsByRange: Object.fromEntries(TIME_RANGES.map((range) => [range, Y_AXIS_LABELS])),

@@ -6,6 +6,23 @@ interface StockCardProps {
   card: StockCardModel
 }
 
+function formatPercentChange(value: number): string {
+  if (value > 0) {
+    return `+${value.toFixed(2)}%`
+  }
+  return `${value.toFixed(2)}%`
+}
+
+function percentClassName(value: number): string {
+  if (value > 0) {
+    return 'stock-change-positive'
+  }
+  if (value < 0) {
+    return 'stock-change-negative'
+  }
+  return 'stock-change-neutral'
+}
+
 export function StockCard({ card }: StockCardProps) {
   const [selectedRange, setSelectedRange] = useState<string | null>(null)
 
@@ -18,7 +35,12 @@ export function StockCard({ card }: StockCardProps) {
   return (
     <article className="stock-card">
       <header className="stock-card-header">
-        <span className="stock-symbol">{card.symbol}</span>
+        <div className="stock-symbol-group">
+          <span className="stock-symbol">{card.symbol}</span>
+          <span className={`stock-change ${percentClassName(card.percentChange)}`}>
+            {formatPercentChange(card.percentChange)}
+          </span>
+        </div>
 
         <div className="range-list">
           {card.timeRanges.map((range) => (

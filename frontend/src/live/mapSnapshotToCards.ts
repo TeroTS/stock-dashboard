@@ -136,6 +136,7 @@ function toCardModel(card: StockCardSnapshotDto): StockCardModel {
 
   return {
     symbol: card.symbol,
+    percentChange: card.percentChange,
     timeRanges: card.timeRanges,
     activeRange: card.activeRange,
     yAxisLabelsByRange,

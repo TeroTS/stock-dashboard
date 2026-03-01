@@ -21,6 +21,7 @@ export interface GridLineSpec {
 
 export interface StockCardModel {
   symbol: string
+  percentChange: number
   timeRanges: string[]
   activeRange: string
   yAxisLabelsByRange: Record<string, string[]>

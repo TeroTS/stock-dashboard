@@ -117,6 +117,7 @@ describe('mapSnapshotToStockCards', () => {
     const cards = mapSnapshotToStockCards(snapshot)
 
     const aapl = cards[0]
+    expect(aapl.percentChange).toBe(2.1)
     expect(aapl.activeRange).toBe('5min')
     expect(aapl.yAxisLabelsByRange['5min']).toEqual(['103.00', '101.00', '99.00'])
     expect(aapl.candlesByRange['5min']).toHaveLength(2)

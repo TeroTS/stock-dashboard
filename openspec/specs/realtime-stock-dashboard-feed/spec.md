@@ -57,20 +57,20 @@ The system SHALL rank symbols by percent change from market-open price using `((
 ### Requirement: Snapshot Broadcast Cadence
 The system SHALL publish full dashboard snapshots over WebSocket every second while session is open, and the dashboard frontend SHALL consume and render these snapshots in near-real-time.
 
-#### Scenario: Track snapshot publish outcomes
-- **WHEN** the publisher executes on cadence
-- **THEN** it records snapshot observability outcomes (`published`, `skipped`, or `error`) and publish timing metrics
+#### Scenario: Frontend applies selected range view
+- **WHEN** a user clicks a range chip (`5min`, `30min`, `120min`) on a stock card
+- **THEN** the frontend updates that card’s chart and axis labels to the selected range data without requiring a page reload
+
+#### Scenario: Frontend preserves range selection on live updates
+- **WHEN** a new snapshot arrives for a symbol whose currently selected range still exists
+- **THEN** the frontend keeps the user’s selected range for that card
 
 ### Requirement: Snapshot Payload Contract
 Each snapshot card SHALL include symbol identity, ranges, candle data, y-axis labels formatted with exactly 2 decimal places, x-axis labels in 24-hour format, and action labels `Buy` and `Short`.
 
-#### Scenario: Frontend payload mapping
-- **WHEN** a snapshot card is mapped to the dashboard UI model
-- **THEN** symbol, ranges, axis labels, action labels, and active-range candle data are preserved for rendering
-
-#### Scenario: Frontend fallback behavior
-- **WHEN** live websocket feed is unavailable beyond retry window
-- **THEN** dashboard remains usable via static fallback data and indicates fallback status
+#### Scenario: Frontend stores per-range chart data
+- **WHEN** a snapshot card is mapped to frontend card state
+- **THEN** the frontend stores candle and axis information for each available range so range switching is interactive
 
 ### Requirement: Redis Intraday Persistence
 The system SHALL persist active-session state in Redis so backend restarts do not lose intraday candles, open prices, or latest prices.

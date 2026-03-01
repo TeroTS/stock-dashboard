@@ -6,6 +6,7 @@ import type { StockCardModel } from '../types'
 const mockCards: StockCardModel[] = [
   {
     symbol: 'AAPL',
+    percentChange: 2.1,
     timeRanges: ['5min', '30min', '120min'],
     activeRange: '5min',
     yAxisLabelsByRange: {
@@ -62,6 +63,7 @@ describe('StockDashboard', () => {
     render(<StockDashboard />)
 
     expect(screen.getByText('AAPL')).toBeInTheDocument()
+    expect(screen.getByText('+2.10%')).toBeInTheDocument()
   })
 
   it('switches active range when a range button is clicked', () => {
