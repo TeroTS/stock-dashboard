@@ -113,16 +113,18 @@ describe('mapSnapshotToStockCards', () => {
     expect(cards.map((card) => card.symbol)).toEqual(['AAPL', 'MSFT', 'TSLA'])
   })
 
-  it('maps active range candles into chart candles', () => {
+  it('maps candles and labels for each range', () => {
     const cards = mapSnapshotToStockCards(snapshot)
 
     const aapl = cards[0]
     expect(aapl.activeRange).toBe('5min')
-    expect(aapl.yAxisLabels).toEqual(['103.00', '101.00', '99.00'])
-    expect(aapl.candles).toHaveLength(2)
+    expect(aapl.yAxisLabelsByRange['5min']).toEqual(['103.00', '101.00', '99.00'])
+    expect(aapl.candlesByRange['5min']).toHaveLength(2)
+    expect(aapl.candlesByRange['30min']).toHaveLength(0)
+    expect(aapl.xAxisLabelsByRange['5min'].length).toBeGreaterThan(0)
 
-    expect(aapl.candles[0].body.fill).toBe('#22C55E')
-    expect(aapl.candles[0].body.height).toBeGreaterThan(0)
-    expect(aapl.candles[0].wick.height).toBeGreaterThan(0)
+    expect(aapl.candlesByRange['5min'][0].body.fill).toBe('#22C55E')
+    expect(aapl.candlesByRange['5min'][0].body.height).toBeGreaterThan(0)
+    expect(aapl.candlesByRange['5min'][0].wick.height).toBeGreaterThan(0)
   })
 })

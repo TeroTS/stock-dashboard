@@ -184,10 +184,10 @@ export const STOCK_CARDS: StockCardModel[] = STOCK_SYMBOLS.map((symbol) => ({
   symbol,
   timeRanges: TIME_RANGES,
   activeRange: ACTIVE_RANGE,
-  yAxisLabels: Y_AXIS_LABELS,
-  xAxisLabels: X_AXIS_LABELS,
+  yAxisLabelsByRange: Object.fromEntries(TIME_RANGES.map((range) => [range, Y_AXIS_LABELS])),
+  xAxisLabelsByRange: Object.fromEntries(TIME_RANGES.map((range) => [range, X_AXIS_LABELS])),
   gridLines: GRID_LINES,
-  candles: CANDLES,
+  candlesByRange: Object.fromEntries(TIME_RANGES.map((range) => [range, CANDLES])),
   buyLabel: 'Buy',
   shortLabel: 'Short',
 }))

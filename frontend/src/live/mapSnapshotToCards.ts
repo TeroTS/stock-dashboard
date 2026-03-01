@@ -11,6 +11,12 @@ const DEFAULT_GRID_LINES: GridLineSpec[] = [
   { x: 12, y: 157, width: 248, height: 1 },
   { x: 12, y: 229, width: 248, height: 1 },
 ]
+const LABEL_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'America/New_York',
+})
 
 function uniqueBySymbol(cards: StockCardSnapshotDto[]): StockCardSnapshotDto[] {
   const seen = new Set<string>()
@@ -77,17 +83,65 @@ function toCandleSpec(candles: CandleSnapshotDto[]): CandleSpec[] {
   })
 }
 
+function toPriceLabel(value: number): string {
+  return value.toFixed(2)
+}
+
+function buildYAxisLabels(candles: CandleSnapshotDto[], fallback: string[] = []): string[] {
+  if (candles.length === 0) {
+    return fallback
+  }
+
+  const high = Math.max(...candles.map((candle) => candle.high))
+  const low = Math.min(...candles.map((candle) => candle.low))
+  const middle = (high + low) / 2
+
+  return [toPriceLabel(high), toPriceLabel(middle), toPriceLabel(low)]
+}
+
+function buildXAxisLabels(candles: CandleSnapshotDto[], fallback: string[] = []): string[] {
+  if (candles.length === 0) {
+    return fallback
+  }
+
+  const size = candles.length
+  const indices = [0, Math.floor(size / 3), Math.floor((size * 2) / 3), size - 1]
+  const labels = new Set<string>()
+
+  for (const index of indices) {
+    const bucket = candles[Math.min(index, size - 1)]
+    const date = new Date(bucket.bucketStart)
+    labels.add(LABEL_TIME_FORMATTER.format(date))
+  }
+
+  return Array.from(labels)
+}
+
 function toCardModel(card: StockCardSnapshotDto): StockCardModel {
-  const activeRangeCandles = card.candlesByRange[card.activeRange] ?? []
+  const candlesByRange: Record<string, CandleSpec[]> = Object.fromEntries(
+    card.timeRanges.map((range) => [range, toCandleSpec(card.candlesByRange[range] ?? [])]),
+  )
+  const yAxisLabelsByRange: Record<string, string[]> = Object.fromEntries(
+    card.timeRanges.map((range) => [
+      range,
+      buildYAxisLabels(card.candlesByRange[range] ?? [], range === card.activeRange ? card.yAxisLabels : []),
+    ]),
+  )
+  const xAxisLabelsByRange: Record<string, string[]> = Object.fromEntries(
+    card.timeRanges.map((range) => [
+      range,
+      buildXAxisLabels(card.candlesByRange[range] ?? [], range === card.activeRange ? card.xAxisLabels : []),
+    ]),
+  )
 
   return {
     symbol: card.symbol,
     timeRanges: card.timeRanges,
     activeRange: card.activeRange,
-    yAxisLabels: card.yAxisLabels,
-    xAxisLabels: card.xAxisLabels,
+    yAxisLabelsByRange,
+    xAxisLabelsByRange,
     gridLines: DEFAULT_GRID_LINES,
-    candles: toCandleSpec(activeRangeCandles),
+    candlesByRange,
     buyLabel: card.buyLabel,
     shortLabel: card.shortLabel,
   }

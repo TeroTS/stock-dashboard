@@ -23,10 +23,10 @@ export interface StockCardModel {
   symbol: string
   timeRanges: string[]
   activeRange: string
-  yAxisLabels: string[]
-  xAxisLabels: string[]
+  yAxisLabelsByRange: Record<string, string[]>
+  xAxisLabelsByRange: Record<string, string[]>
   gridLines: GridLineSpec[]
-  candles: CandleSpec[]
+  candlesByRange: Record<string, CandleSpec[]>
   buyLabel: string
   shortLabel: string
 }

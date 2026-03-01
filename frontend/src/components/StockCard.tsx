@@ -1,11 +1,20 @@
 import { CandlestickChart } from './CandlestickChart'
 import type { StockCardModel } from '../types'
+import { useState } from 'react'
 
 interface StockCardProps {
   card: StockCardModel
 }
 
 export function StockCard({ card }: StockCardProps) {
+  const [selectedRange, setSelectedRange] = useState<string | null>(null)
+
+  const activeRange =
+    selectedRange !== null && card.timeRanges.includes(selectedRange) ? selectedRange : card.activeRange
+  const candles = card.candlesByRange[activeRange] ?? []
+  const yAxisLabels = card.yAxisLabelsByRange[activeRange] ?? []
+  const xAxisLabels = card.xAxisLabelsByRange[activeRange] ?? []
+
   return (
     <article className="stock-card">
       <header className="stock-card-header">
@@ -15,8 +24,9 @@ export function StockCard({ card }: StockCardProps) {
           {card.timeRanges.map((range) => (
             <button
               key={`${card.symbol}-${range}`}
-              className={`range-chip ${range === card.activeRange ? 'range-chip-active' : ''}`}
+              className={`range-chip ${range === activeRange ? 'range-chip-active' : ''}`}
               type="button"
+              onClick={() => setSelectedRange(range)}
             >
               {range}
             </button>
@@ -27,19 +37,19 @@ export function StockCard({ card }: StockCardProps) {
       <section className="chart-area">
         <div className="chart-main">
           <div className="y-axis">
-            {card.yAxisLabels.map((label) => (
+            {yAxisLabels.map((label) => (
               <span key={`${card.symbol}-${label}`} className="axis-text">
                 {label}
               </span>
             ))}
           </div>
 
-          <CandlestickChart candles={card.candles} gridLines={card.gridLines} />
+          <CandlestickChart candles={candles} gridLines={card.gridLines} />
         </div>
 
         <div className="x-axis">
-          {card.xAxisLabels.map((label, index) => (
-            <span key={`${card.symbol}-${label}-${index}`} className="axis-text">
+          {xAxisLabels.map((label) => (
+            <span key={`${card.symbol}-${activeRange}-${label}`} className="axis-text">
               {label}
             </span>
           ))}
