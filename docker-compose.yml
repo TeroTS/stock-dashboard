@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: stock-dashboard-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock-dashboard-backend
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      MARKET_SESSION_OPEN: "00:00"
+      MARKET_SESSION_CLOSE: "23:59"
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stock-dashboard-frontend
+    environment:
+      VITE_WS_URL: ws://localhost:8080/ws/dashboard
+      VITE_WS_TOPIC: /topic/dashboard-snapshots
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+
