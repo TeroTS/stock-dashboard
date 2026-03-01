@@ -59,26 +59,26 @@ The system SHALL rank symbols by percent change from market-open price using `((
 - **THEN** the symbol is excluded from ranking output
 
 ### Requirement: Snapshot Broadcast Cadence
-The system SHALL publish full dashboard snapshots over WebSocket every second while session is open.
+The system SHALL publish full dashboard snapshots over WebSocket every second while session is open, and the dashboard frontend SHALL consume and render these snapshots in near-real-time.
 
-#### Scenario: Periodic broadcast during open session
-- **WHEN** session status is `OPEN`
-- **THEN** the system emits one coherent snapshot per second to subscribed clients
+#### Scenario: Frontend applies periodic snapshots
+- **WHEN** a new snapshot is received from `/topic/dashboard-snapshots`
+- **THEN** the dashboard UI updates card data using the latest snapshot payload
 
-#### Scenario: No live publish outside open session
-- **WHEN** session status is not `OPEN`
-- **THEN** live snapshot publication is suspended
+#### Scenario: Frontend reconnect status
+- **WHEN** the websocket connection is interrupted
+- **THEN** the dashboard exposes a reconnecting state until feed recovery or fallback threshold is reached
 
 ### Requirement: Snapshot Payload Contract
 Each snapshot card SHALL include symbol identity, ranges, candle data, y-axis labels formatted with exactly 2 decimal places, x-axis labels in 24-hour format, and action labels `Buy` and `Short`.
 
-#### Scenario: Emit chart-ready card data
-- **WHEN** a snapshot is produced
-- **THEN** each emitted card contains all required chart and action fields in the contract
+#### Scenario: Frontend payload mapping
+- **WHEN** a snapshot card is mapped to the dashboard UI model
+- **THEN** symbol, ranges, axis labels, action labels, and active-range candle data are preserved for rendering
 
-#### Scenario: Price axis formatting
-- **WHEN** y-axis labels are generated
-- **THEN** each price label is formatted with exactly two decimal digits
+#### Scenario: Frontend fallback behavior
+- **WHEN** live websocket feed is unavailable beyond retry window
+- **THEN** dashboard remains usable via static fallback data and indicates fallback status
 
 ### Requirement: Redis Intraday Persistence
 The system SHALL persist active-session state in Redis so backend restarts do not lose intraday candles, open prices, or latest prices.
