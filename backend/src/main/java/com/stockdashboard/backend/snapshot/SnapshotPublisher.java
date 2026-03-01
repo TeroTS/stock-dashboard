@@ -1,6 +1,8 @@
 package com.stockdashboard.backend.snapshot;
 
 import com.stockdashboard.backend.health.SnapshotFreshnessTracker;
+import com.stockdashboard.backend.observability.PipelineObservability;
+import com.stockdashboard.backend.observability.PipelineObservability.SnapshotResult;
 import com.stockdashboard.backend.ranking.RankingResult;
 import com.stockdashboard.backend.ranking.RankingService;
 import com.stockdashboard.backend.session.MarketSessionService;
@@ -32,6 +34,7 @@ public class SnapshotPublisher {
   private final SnapshotAssembler snapshotAssembler;
   private final SimpMessagingTemplate messagingTemplate;
   private final SnapshotFreshnessTracker snapshotFreshnessTracker;
+  private final PipelineObservability observability;
   private final Clock clock;
   private final Counter publishCounter;
 
@@ -43,6 +46,7 @@ public class SnapshotPublisher {
       SnapshotAssembler snapshotAssembler,
       SimpMessagingTemplate messagingTemplate,
       SnapshotFreshnessTracker snapshotFreshnessTracker,
+      PipelineObservability observability,
       Clock clock,
       MeterRegistry meterRegistry) {
     this.sessionService = sessionService;
@@ -52,6 +56,7 @@ public class SnapshotPublisher {
     this.snapshotAssembler = snapshotAssembler;
     this.messagingTemplate = messagingTemplate;
     this.snapshotFreshnessTracker = snapshotFreshnessTracker;
+    this.observability = observability;
     this.clock = clock;
     this.publishCounter = Counter.builder("snapshot.published").register(meterRegistry);
   }
@@ -60,6 +65,7 @@ public class SnapshotPublisher {
   public void publish() {
     Instant now = clock.instant();
     if (sessionService.getSessionState(now) != SessionState.OPEN) {
+      observability.recordSnapshot(SnapshotResult.SKIPPED, 0, 0);
       return;
     }
 
@@ -69,12 +75,23 @@ public class SnapshotPublisher {
       Map<String, com.stockdashboard.backend.domain.SymbolSessionState> states = stateStore.findAll(sessionDate);
       RankingResult ranking = rankingService.rank(states.values());
 
+      long buildStartedAt = System.nanoTime();
       DashboardSnapshot snapshot = snapshotAssembler.assemble(now, SessionState.OPEN, ranking, states);
+      long buildDurationNanos = System.nanoTime() - buildStartedAt;
+
+      long publishStartedAt = System.nanoTime();
       messagingTemplate.convertAndSend(TOPIC, snapshot);
+      long publishDurationNanos = System.nanoTime() - publishStartedAt;
+
       snapshotFreshnessTracker.markPublished(now);
       publishCounter.increment();
+      observability.recordSnapshot(SnapshotResult.PUBLISHED, buildDurationNanos, publishDurationNanos);
     } catch (RuntimeException ex) {
-      LOGGER.warn("Skipping snapshot publish due to backend state error", ex);
+      observability.recordSnapshot(SnapshotResult.ERROR, 0, 0);
+      LOGGER.atWarn()
+          .addKeyValue("event", "snapshot_publish_failed")
+          .setCause(ex)
+          .log("Skipping snapshot publish due to backend state error");
     }
   }
 }

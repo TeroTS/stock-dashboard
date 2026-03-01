@@ -62,7 +62,11 @@ public class MockTickStream {
       tickIngestService.process(new NormalizedTick(now, symbol, nextPrice, volume));
       ingestConnectivityTracker.markSeen(now);
     } catch (RuntimeException ex) {
-      LOGGER.warn("Mock ingest failed for symbol {}", symbol, ex);
+      LOGGER.atWarn()
+          .addKeyValue("event", "mock_ingest_failed")
+          .addKeyValue("symbol", symbol)
+          .setCause(ex)
+          .log("Mock ingest failed");
     }
   }
 

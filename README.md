@@ -47,6 +47,7 @@ docker compose down -v
 ```
 
 Detailed E2E steps: see `docs/local-testing.md`.
+Operational checks and metrics catalog: see `docs/operations.md`.
 
 ## Local development (without Compose)
 

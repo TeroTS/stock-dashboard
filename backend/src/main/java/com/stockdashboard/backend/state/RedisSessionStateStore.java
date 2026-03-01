@@ -37,6 +37,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   public Optional<SymbolSessionState> find(LocalDate sessionDate, String symbol) {
     String key = stateKey(sessionDate, symbol);
     return retryExecutor.execute(
+        "find_symbol_state",
         () -> {
           String payload = redisTemplate.opsForValue().get(key);
           if (payload == null) {
@@ -50,7 +51,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   @Override
   public Map<String, SymbolSessionState> findAll(LocalDate sessionDate) {
     Set<String> symbols =
-        retryExecutor.execute(() -> redisTemplate.opsForSet().members(sessionSymbolsKey(sessionDate)));
+        retryExecutor.execute("list_session_symbols", () -> redisTemplate.opsForSet().members(sessionSymbolsKey(sessionDate)));
     if (symbols == null || symbols.isEmpty()) {
       return Map.of();
     }
@@ -66,6 +67,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   @Override
   public void save(LocalDate sessionDate, SymbolSessionState state) {
     retryExecutor.execute(
+        "save_symbol_state",
         () -> {
           redisTemplate.opsForValue().set(stateKey(sessionDate, state.getSymbol()), serialize(state));
           redisTemplate.opsForSet().add(sessionSymbolsKey(sessionDate), state.getSymbol());
@@ -77,6 +79,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   @Override
   public Optional<LocalDate> getCurrentSessionDate() {
     return retryExecutor.execute(
+        "get_current_session_date",
         () -> {
           String value = redisTemplate.opsForValue().get(CURRENT_SESSION_KEY);
           if (value == null) {
@@ -89,6 +92,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   @Override
   public void setCurrentSessionDate(LocalDate sessionDate) {
     retryExecutor.execute(
+        "set_current_session_date",
         () -> {
           redisTemplate.opsForValue().set(CURRENT_SESSION_KEY, sessionDate.toString());
           redisTemplate.opsForSet().add(SESSIONS_KEY, sessionDate.toString());
@@ -99,6 +103,7 @@ public class RedisSessionStateStore implements SessionStateStore {
   @Override
   public void clearAllSessions() {
     retryExecutor.execute(
+        "clear_all_sessions",
         () -> {
           Set<String> sessionDates = redisTemplate.opsForSet().members(SESSIONS_KEY);
           if (sessionDates != null) {

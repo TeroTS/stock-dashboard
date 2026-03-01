@@ -6,13 +6,9 @@ TBD - created by archiving change build-realtime-stock-backend. Update Purpose a
 ### Requirement: Tick Ingestion and Validation
 The system SHALL accept tick events containing `timestamp`, `symbol`, `price`, and `volume`, and SHALL process only ticks for symbols in the configured watchlist during open session.
 
-#### Scenario: Accept valid watchlist tick during open session
-- **WHEN** a tick with valid fields is received for a watchlist symbol while session status is `OPEN`
-- **THEN** the system records the tick for downstream candle and ranking updates
-
-#### Scenario: Ignore unknown symbol
-- **WHEN** a tick is received for a symbol not in the watchlist
-- **THEN** the system ignores the tick and increments dropped-symbol observability counters
+#### Scenario: Track ingest outcomes by result
+- **WHEN** the system processes a tick attempt
+- **THEN** it records an observability metric for tick result (`accepted`, `invalid`, `dropped_symbol`, `dropped_session`, or `redis_failed`) with bounded symbol labels
 
 ### Requirement: Session Window Enforcement
 The system SHALL evaluate session state in `America/New_York` and SHALL allow live updates only from `09:30:00` through `16:00:00`.
@@ -61,13 +57,9 @@ The system SHALL rank symbols by percent change from market-open price using `((
 ### Requirement: Snapshot Broadcast Cadence
 The system SHALL publish full dashboard snapshots over WebSocket every second while session is open, and the dashboard frontend SHALL consume and render these snapshots in near-real-time.
 
-#### Scenario: Frontend applies periodic snapshots
-- **WHEN** a new snapshot is received from `/topic/dashboard-snapshots`
-- **THEN** the dashboard UI updates card data using the latest snapshot payload
-
-#### Scenario: Frontend reconnect status
-- **WHEN** the websocket connection is interrupted
-- **THEN** the dashboard exposes a reconnecting state until feed recovery or fallback threshold is reached
+#### Scenario: Track snapshot publish outcomes
+- **WHEN** the publisher executes on cadence
+- **THEN** it records snapshot observability outcomes (`published`, `skipped`, or `error`) and publish timing metrics
 
 ### Requirement: Snapshot Payload Contract
 Each snapshot card SHALL include symbol identity, ranges, candle data, y-axis labels formatted with exactly 2 decimal places, x-axis labels in 24-hour format, and action labels `Buy` and `Short`.
@@ -83,13 +75,9 @@ Each snapshot card SHALL include symbol identity, ranges, candle data, y-axis la
 ### Requirement: Redis Intraday Persistence
 The system SHALL persist active-session state in Redis so backend restarts do not lose intraday candles, open prices, or latest prices.
 
-#### Scenario: Recover session state after restart
-- **WHEN** backend restarts during open session
-- **THEN** the service resumes processing with previously persisted intraday state
-
-#### Scenario: Degraded Redis handling
-- **WHEN** Redis operations fail beyond retry limits
-- **THEN** the system marks health as degraded and reports failure metrics
+#### Scenario: Track Redis operation retries and failures
+- **WHEN** Redis operations are executed with retry semantics
+- **THEN** the system records operation-level success/failure metrics and structured retry/failure logs
 
 ### Requirement: Daily Session Reset
 The system SHALL reset prior-day intraday state at the start of the next open session.
@@ -97,4 +85,18 @@ The system SHALL reset prior-day intraday state at the start of the next open se
 #### Scenario: Clear stale state on new session open
 - **WHEN** session transitions to the new market-open boundary on a new date
 - **THEN** prior session candles, open prices, and rankings are cleared before new processing begins
+
+### Requirement: Backend Metrics Export
+The backend SHALL expose Prometheus-compatible metrics for realtime pipeline observability.
+
+#### Scenario: Prometheus endpoint exposure
+- **WHEN** backend is running
+- **THEN** `GET /actuator/prometheus` responds with default runtime metrics and custom pipeline metric series
+
+### Requirement: Structured Backend Logging
+The backend SHALL emit structured logs with stable event keys for pipeline and Redis error/retry flows.
+
+#### Scenario: Structured failure event
+- **WHEN** tick processing or snapshot publishing fails
+- **THEN** logs include machine-parseable event metadata (event key, symbol/session context where applicable, and exception details)
 

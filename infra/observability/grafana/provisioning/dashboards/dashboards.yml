@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Stock Dashboard Observability
+    orgId: 1
+    folder: Stock Dashboard
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

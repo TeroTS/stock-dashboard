@@ -6,6 +6,10 @@ This project can be run locally with Docker Compose using three services:
 - `backend` (Spring Boot realtime feed)
 - `frontend` (Vite app)
 
+Optional observability profile:
+- `prometheus` (metrics scraping)
+- `grafana` (dashboards)
+
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose plugin)
@@ -17,6 +21,12 @@ From repository root:
 
 ```bash
 docker compose up --build -d
+```
+
+With observability stack:
+
+```bash
+docker compose --profile observability up --build -d
 ```
 
 ## Verify services
@@ -35,6 +45,12 @@ Backend health check:
 
 ```bash
 curl http://localhost:8080/actuator/health
+```
+
+Prometheus endpoint check:
+
+```bash
+curl http://localhost:8080/actuator/prometheus | rg "pipeline_(ticks|snapshots|redis_ops|ingest_last_seen_age_seconds|snapshot_last_published_age_seconds|watchlist_size|redis_degraded)"
 ```
 
 ## Manual E2E test flow
@@ -62,6 +78,17 @@ docker compose logs -f frontend
 docker compose logs -f redis
 ```
 
+Observability services:
+
+```bash
+docker compose --profile observability logs -f prometheus
+docker compose --profile observability logs -f grafana
+```
+
+URLs:
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (`admin` / `admin`)
+
 ## Stop and clean up
 
 Stop services:
@@ -75,4 +102,3 @@ Stop and also remove volumes:
 ```bash
 docker compose down -v
 ```
-

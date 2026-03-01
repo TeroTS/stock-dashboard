@@ -5,6 +5,8 @@ import com.stockdashboard.backend.domain.NormalizedTick;
 import com.stockdashboard.backend.domain.RangeDefinition;
 import com.stockdashboard.backend.domain.SymbolSessionState;
 import com.stockdashboard.backend.health.IngestConnectivityTracker;
+import com.stockdashboard.backend.observability.PipelineObservability;
+import com.stockdashboard.backend.observability.PipelineObservability.TickResult;
 import com.stockdashboard.backend.session.MarketSessionService;
 import com.stockdashboard.backend.session.SessionLifecycleService;
 import com.stockdashboard.backend.session.SessionState;
@@ -35,6 +37,7 @@ public class TickIngestService {
   private final SessionLifecycleService sessionLifecycleService;
   private final Validator validator;
   private final IngestConnectivityTracker ingestConnectivityTracker;
+  private final PipelineObservability observability;
 
   private final Counter invalidTicksCounter;
   private final Counter droppedSymbolCounter;
@@ -48,7 +51,8 @@ public class TickIngestService {
       SessionLifecycleService sessionLifecycleService,
       Validator validator,
       MeterRegistry meterRegistry,
-      IngestConnectivityTracker ingestConnectivityTracker) {
+      IngestConnectivityTracker ingestConnectivityTracker,
+      PipelineObservability observability) {
     this(
         properties.getWatchlist().stream().map(symbol -> symbol.toUpperCase(Locale.ROOT)).collect(Collectors.toSet()),
         sessionStateStore,
@@ -56,7 +60,8 @@ public class TickIngestService {
         sessionLifecycleService,
         validator,
         meterRegistry,
-        ingestConnectivityTracker);
+        ingestConnectivityTracker,
+        observability);
   }
 
   public TickIngestService(
@@ -70,7 +75,8 @@ public class TickIngestService {
         new SessionLifecycleService(marketSessionService, sessionStateStore),
         Validation.buildDefaultValidatorFactory().getValidator(),
         new SimpleMeterRegistry(),
-        new IngestConnectivityTracker());
+        new IngestConnectivityTracker(),
+        PipelineObservability.noop());
   }
 
   private TickIngestService(
@@ -80,13 +86,15 @@ public class TickIngestService {
       SessionLifecycleService sessionLifecycleService,
       Validator validator,
       MeterRegistry meterRegistry,
-      IngestConnectivityTracker ingestConnectivityTracker) {
+      IngestConnectivityTracker ingestConnectivityTracker,
+      PipelineObservability observability) {
     this.watchlist = watchlist;
     this.sessionStateStore = sessionStateStore;
     this.marketSessionService = marketSessionService;
     this.sessionLifecycleService = sessionLifecycleService;
     this.validator = validator;
     this.ingestConnectivityTracker = ingestConnectivityTracker;
+    this.observability = observability;
 
     this.invalidTicksCounter = Counter.builder("ticks.invalid").register(meterRegistry);
     this.droppedSymbolCounter = Counter.builder("ticks.dropped.symbol").register(meterRegistry);
@@ -94,22 +102,40 @@ public class TickIngestService {
   }
 
   public void process(NormalizedTick tick) {
+    long startedAt = System.nanoTime();
+
     Set<ConstraintViolation<NormalizedTick>> violations = validator.validate(tick);
     if (!violations.isEmpty()) {
       invalidTicksCounter.increment();
-      LOGGER.debug("Dropping invalid tick due to {} violations", violations.size());
+      observability.recordTick(TickResult.INVALID, tick.symbol(), System.nanoTime() - startedAt);
+      LOGGER.atDebug()
+          .addKeyValue("event", "tick_dropped_invalid")
+          .addKeyValue("symbol", tick.symbol())
+          .addKeyValue("violations", violations.size())
+          .log("Dropping invalid tick");
       return;
     }
 
     String symbol = tick.symbol().toUpperCase(Locale.ROOT);
     if (!watchlist.contains(symbol)) {
       droppedSymbolCounter.increment();
-      LOGGER.debug("Dropping tick for unknown symbol {}", symbol);
+      observability.recordTick(TickResult.DROPPED_SYMBOL, symbol, System.nanoTime() - startedAt);
+      LOGGER.atDebug()
+          .addKeyValue("event", "tick_dropped_symbol")
+          .addKeyValue("symbol", symbol)
+          .log("Dropping tick for unknown symbol");
       return;
     }
 
-    if (marketSessionService.getSessionState(tick.timestamp()) != SessionState.OPEN) {
+    SessionState sessionState = marketSessionService.getSessionState(tick.timestamp());
+    if (sessionState != SessionState.OPEN) {
       outOfSessionCounter.increment();
+      observability.recordTick(TickResult.DROPPED_SESSION, symbol, System.nanoTime() - startedAt);
+      LOGGER.atDebug()
+          .addKeyValue("event", "tick_dropped_session")
+          .addKeyValue("symbol", symbol)
+          .addKeyValue("sessionState", sessionState)
+          .log("Dropping tick outside session");
       return;
     }
 
@@ -131,8 +157,14 @@ public class TickIngestService {
 
       sessionStateStore.save(sessionDate, state);
       ingestConnectivityTracker.markSeen(tick.timestamp());
+      observability.recordTick(TickResult.ACCEPTED, symbol, System.nanoTime() - startedAt);
     } catch (RuntimeException ex) {
-      LOGGER.warn("Failed to persist or process tick for symbol {}", symbol, ex);
+      observability.recordTick(TickResult.REDIS_FAILED, symbol, System.nanoTime() - startedAt);
+      LOGGER.atWarn()
+          .addKeyValue("event", "tick_processing_failed")
+          .addKeyValue("symbol", symbol)
+          .setCause(ex)
+          .log("Failed to persist or process tick");
     }
   }
 }
