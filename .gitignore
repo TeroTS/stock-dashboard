@@ -1,6 +1,7 @@
 # Agent/tooling
 .codex
 .playwright
+output/
 
 # OS/editor
 .DS_Store
