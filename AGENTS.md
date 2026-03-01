@@ -3,8 +3,10 @@
 ## Project Structure & Module Organization
 - `frontend/` contains the React 19 + TypeScript + Vite dashboard UI.
 - `frontend/src/components/` holds UI modules (`StockDashboard`, `StockCard`, `CandlestickChart`).
+- `frontend/src/live/` contains realtime feed integration (`dashboardFeedClient`, `useDashboardFeed`, mapping, connection state).
 - `frontend/src/data/dashboardData.ts` stores static dashboard seed data (fallback/demo data).
 - `frontend/src/types.ts` contains shared frontend TypeScript models/interfaces.
+- `frontend/src/test/setup.ts` configures frontend test setup (`jest-dom` + Vitest).
 - `frontend/dist/` is generated build output; do not edit it manually.
 - `backend/` contains the Spring Boot 3.5 (Java 21) real-time feed service.
 - `backend/src/main/java/com/stockdashboard/backend/` is organized by feature packages (`config`, `domain`, `pipeline`, `ranking`, `session`, `snapshot`, `state`, `ws`, `health`).
@@ -21,6 +23,8 @@ pnpm install     # install dependencies
 pnpm dev         # start Vite dev server with HMR
 pnpm lint        # run ESLint on TS/TSX files
 pnpm build       # type-check (tsc -b) and build production bundle
+pnpm test        # run Vitest test suite
+pnpm test:watch  # run Vitest in watch mode
 pnpm preview     # serve the built app locally
 ```
 
@@ -45,9 +49,10 @@ mvn package          # compile, test, and package jar
 - Backend tests are configured with JUnit 5, Spring Boot Test, Testcontainers, and Awaitility.
 - Backend integration tests require Docker (for Redis Testcontainers).
 - For backend behavior changes, add or update tests under `backend/src/test/java/...`.
-- Frontend has no test runner configured yet; for new frontend behavior, add Vitest + React Testing Library tests when introducing that setup.
+- Frontend tests are configured with Vitest + React Testing Library + JSDOM.
+- For frontend behavior changes, add/update tests under `frontend/src/**/*.test.ts(x)`.
 - Minimum local verification:
-  - Frontend-only changes: `pnpm lint` and `pnpm build` (from `frontend/`)
+  - Frontend-only changes: `pnpm test`, `pnpm lint`, and `pnpm build` (from `frontend/`)
   - Backend-only changes: `mvn test` (from `backend/`)
   - Cross-stack changes: run both frontend and backend checks
 
