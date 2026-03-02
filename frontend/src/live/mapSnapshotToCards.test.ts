@@ -173,8 +173,8 @@ describe('mapSnapshotToStockCards', () => {
     const cards = mapSnapshotToStockCards(snapshot)
 
     expect(cards.map((card) => card.symbol)).toEqual(['AAPL', 'MSFT', 'AAPL', 'TSLA'])
-    expect(cards[0].cardId).toBe('gainer-0-AAPL')
-    expect(cards[2].cardId).toBe('loser-0-AAPL')
+    expect(cards[0].cardId).toBe('gainer-AAPL')
+    expect(cards[2].cardId).toBe('loser-AAPL')
   })
 
   it('maps candles and labels for each range', () => {
@@ -225,7 +225,22 @@ describe('mapSnapshotToStockCards', () => {
     const cards = mapSnapshotToStockCards(tenSlotSnapshot)
 
     expect(cards).toHaveLength(10)
-    expect(cards[0].cardId).toBe('gainer-0-G0')
-    expect(cards[5].cardId).toBe('loser-0-G4')
+    expect(cards[0].cardId).toBe('gainer-G0')
+    expect(cards[5].cardId).toBe('loser-G4')
+  })
+
+  it('keeps card ids stable when ranking order changes', () => {
+    const reorderedSnapshot: DashboardSnapshotDto = {
+      ...snapshot,
+      topGainers: [snapshot.topGainers[1], snapshot.topGainers[0]],
+      topLosers: [snapshot.topLosers[1], snapshot.topLosers[0]],
+    }
+
+    const cards = mapSnapshotToStockCards(reorderedSnapshot)
+
+    expect(cards[0].cardId).toBe('gainer-MSFT')
+    expect(cards[1].cardId).toBe('gainer-AAPL')
+    expect(cards[2].cardId).toBe('loser-TSLA')
+    expect(cards[3].cardId).toBe('loser-AAPL')
   })
 })

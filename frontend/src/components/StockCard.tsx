@@ -35,7 +35,7 @@ export function StockCard({ card, onBuy, onShort }: StockCardProps) {
   const xAxisLabels = card.xAxisLabelsByRange[activeRange] ?? []
 
   return (
-    <article className="stock-card">
+    <article className="stock-card" data-testid={`stock-${card.cardId}`}>
       <header className="stock-card-header">
         <div className="stock-symbol-group">
           <span className="stock-symbol">{card.symbol}</span>

@@ -7,7 +7,7 @@ import type { TransactionCardModel } from '../types'
 
 const mockCards: StockCardModel[] = [
   {
-    cardId: 'gainer-0-AAPL',
+    cardId: 'gainer-AAPL',
     symbol: 'AAPL',
     percentChange: 2.1,
     timeRanges: ['5min', '30min', '120min'],
@@ -44,6 +44,8 @@ const mockCards: StockCardModel[] = [
     shortLabel: 'Short',
   },
 ]
+
+let mockCardsState: StockCardModel[] = [...mockCards]
 
 const mockTransactions: TransactionCardModel[] = [
   {
@@ -125,7 +127,7 @@ const closeTransaction = vi.fn()
 
 vi.mock('../live/useDashboardFeed', () => ({
   useDashboardFeed: () => ({
-    cards: mockCards,
+    cards: mockCardsState,
     transactions: mockTransactions,
     status: 'live',
     updatedAt: '2026-03-01T12:10:00Z',
@@ -137,6 +139,7 @@ vi.mock('../live/useDashboardFeed', () => ({
 
 describe('StockDashboard', () => {
   beforeEach(() => {
+    mockCardsState = [...mockCards]
     openTransaction.mockClear()
     closeTransaction.mockClear()
   })
@@ -194,5 +197,29 @@ describe('StockDashboard', () => {
     expect(range30.className).toContain('range-chip-active')
     expect(range5.className).not.toContain('range-chip-active')
     expect(firstBody.style.background).toBe('rgb(239, 68, 68)')
+  })
+
+  it('keeps selected range when cards reorder in the grid', () => {
+    const msftCard: StockCardModel = {
+      ...mockCards[0],
+      cardId: 'gainer-MSFT',
+      symbol: 'MSFT',
+      percentChange: 1.1,
+    }
+
+    mockCardsState = [mockCards[0], msftCard]
+    const { rerender } = render(<StockDashboard />)
+
+    const aaplCard = screen.getByTestId('stock-gainer-AAPL')
+    fireEvent.click(within(aaplCard).getByRole('button', { name: '30min' }))
+    expect(within(aaplCard).getByRole('button', { name: '30min' }).className).toContain('range-chip-active')
+
+    mockCardsState = [msftCard, mockCards[0]]
+    rerender(<StockDashboard />)
+
+    const aaplCardAfterMove = screen.getByTestId('stock-gainer-AAPL')
+    expect(within(aaplCardAfterMove).getByRole('button', { name: '30min' }).className).toContain(
+      'range-chip-active',
+    )
   })
 })

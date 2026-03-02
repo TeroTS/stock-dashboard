@@ -155,8 +155,8 @@ function toCardModel(card: StockCardSnapshotDto, cardId: string): StockCardModel
 }
 
 export function mapSnapshotToStockCards(snapshot: DashboardSnapshotDto): StockCardModel[] {
-  const gainers = snapshot.topGainers.slice(0, 5).map((card, index) => toCardModel(card, `gainer-${index}-${card.symbol}`))
-  const losers = snapshot.topLosers.slice(0, 5).map((card, index) => toCardModel(card, `loser-${index}-${card.symbol}`))
+  const gainers = snapshot.topGainers.slice(0, 5).map((card) => toCardModel(card, `gainer-${card.symbol}`))
+  const losers = snapshot.topLosers.slice(0, 5).map((card) => toCardModel(card, `loser-${card.symbol}`))
 
   return [...gainers, ...losers]
 }
