@@ -327,6 +327,22 @@
   border-radius: 1px;
 }
 
+.chart-reference-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top-width: 1px;
+  border-top-style: dashed;
+}
+
+.chart-reference-line-entry {
+  border-top-color: #38bdf8;
+}
+
+.chart-reference-line-exit {
+  border-top-color: #f59e0b;
+}
+
 .x-axis {
   width: 321px;
   max-width: 100%;

@@ -10,9 +10,16 @@ function toPercent(value: number, max: number): string {
 interface CandlestickChartProps {
   candles: CandleSpec[]
   gridLines: GridLineSpec[]
+  referenceLines?: ChartReferenceLine[]
 }
 
-export function CandlestickChart({ candles, gridLines }: CandlestickChartProps) {
+interface ChartReferenceLine {
+  key: string
+  topPercent: number
+  className: string
+}
+
+export function CandlestickChart({ candles, gridLines, referenceLines = [] }: CandlestickChartProps) {
   return (
     <div className="candlestick-plot">
       {gridLines.map((line, index) => (
@@ -52,6 +59,14 @@ export function CandlestickChart({ candles, gridLines }: CandlestickChartProps) 
             height: toPercent(candle.body.height, PLOT_BASE_HEIGHT),
             background: candle.body.fill,
           }}
+        />
+      ))}
+
+      {referenceLines.map((line) => (
+        <span
+          key={line.key}
+          className={`chart-reference-line ${line.className}`}
+          style={{ top: `${line.topPercent}%` }}
         />
       ))}
     </div>

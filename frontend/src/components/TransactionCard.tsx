@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { CandlestickChart } from './CandlestickChart'
 import type { TransactionCardModel } from '../types'
 
+const PLOT_BASE_HEIGHT = 313
+const VERTICAL_PADDING = 12
+
 interface TransactionCardProps {
   transaction: TransactionCardModel
   onClose?: (transactionId: string) => void
@@ -47,6 +50,22 @@ function profitLossClass(value: number | null): string {
   return value > 0 ? 'transaction-profit-positive' : 'transaction-profit-negative'
 }
 
+function toReferenceLineTopPercent(price: number, labels: string[]): number | null {
+  const values = labels.map((label) => Number.parseFloat(label)).filter((value) => Number.isFinite(value))
+  if (values.length < 2) {
+    return null
+  }
+
+  const maxPrice = Math.max(...values)
+  const minPrice = Math.min(...values)
+  const range = Math.max(maxPrice - minPrice, 0.0001)
+  const drawableHeight = PLOT_BASE_HEIGHT - VERTICAL_PADDING * 2
+  const normalized = Math.min(1, Math.max(0, (maxPrice - price) / range))
+  const y = VERTICAL_PADDING + normalized * drawableHeight
+
+  return (y / PLOT_BASE_HEIGHT) * 100
+}
+
 export function TransactionCard({ transaction, onClose }: TransactionCardProps) {
   const [selectedRange, setSelectedRange] = useState<string | null>(null)
   const activeRange =
@@ -54,6 +73,17 @@ export function TransactionCard({ transaction, onClose }: TransactionCardProps) 
   const candles = transaction.candlesByRange[activeRange] ?? []
   const yAxisLabels = transaction.yAxisLabelsByRange[activeRange] ?? []
   const xAxisLabels = transaction.xAxisLabelsByRange[activeRange] ?? []
+  const entryLineTop = toReferenceLineTopPercent(transaction.entryPrice, yAxisLabels)
+  const exitLineTop = transaction.exitPrice !== null ? toReferenceLineTopPercent(transaction.exitPrice, yAxisLabels) : null
+
+  const referenceLines = [
+    ...(entryLineTop === null
+      ? []
+      : [{ key: `entry-${transaction.transactionId}`, topPercent: entryLineTop, className: 'chart-reference-line-entry' }]),
+    ...(exitLineTop === null
+      ? []
+      : [{ key: `exit-${transaction.transactionId}`, topPercent: exitLineTop, className: 'chart-reference-line-exit' }]),
+  ]
 
   return (
     <article className="transaction-card" data-testid={`transaction-${transaction.transactionId}`}>
@@ -91,7 +121,7 @@ export function TransactionCard({ transaction, onClose }: TransactionCardProps) 
             ))}
           </div>
 
-          <CandlestickChart candles={candles} gridLines={transaction.gridLines} />
+          <CandlestickChart candles={candles} gridLines={transaction.gridLines} referenceLines={referenceLines} />
         </div>
 
         <div className="x-axis">

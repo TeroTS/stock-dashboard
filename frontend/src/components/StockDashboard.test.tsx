@@ -150,6 +150,7 @@ describe('StockDashboard', () => {
     expect(screen.getByRole('button', { name: 'Sell' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cover' })).not.toBeInTheDocument()
     expect(container.querySelectorAll('.candlestick-plot')).toHaveLength(3)
+    expect(container.querySelectorAll('.chart-reference-line')).toHaveLength(3)
   })
 
   it('renders connection status and timestamp', () => {
