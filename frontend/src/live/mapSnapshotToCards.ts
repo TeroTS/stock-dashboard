@@ -1,5 +1,5 @@
-import type { CandleSpec, GridLineSpec, StockCardModel } from '../types'
-import type { CandleSnapshotDto, DashboardSnapshotDto, StockCardSnapshotDto } from './types'
+import type { CandleSpec, GridLineSpec, TransactionCardModel, StockCardModel } from '../types'
+import type { CandleSnapshotDto, DashboardSnapshotDto, StockCardSnapshotDto, TransactionSnapshotDto } from './types'
 
 const PLOT_BASE_WIDTH = 271.2
 const PLOT_BASE_HEIGHT = 313
@@ -17,19 +17,6 @@ const LABEL_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
   hour12: false,
   timeZone: 'America/New_York',
 })
-
-function uniqueBySymbol(cards: StockCardSnapshotDto[]): StockCardSnapshotDto[] {
-  const seen = new Set<string>()
-
-  return cards.filter((card) => {
-    if (seen.has(card.symbol)) {
-      return false
-    }
-
-    seen.add(card.symbol)
-    return true
-  })
-}
 
 function yForPrice(price: number, maxPrice: number, minPrice: number): number {
   const range = Math.max(maxPrice - minPrice, 0.0001)
@@ -117,7 +104,13 @@ function buildXAxisLabels(candles: CandleSnapshotDto[], fallback: string[] = [])
   return Array.from(labels)
 }
 
-function toCardModel(card: StockCardSnapshotDto): StockCardModel {
+function mapChartModel(card: {
+  timeRanges: string[]
+  activeRange: string
+  candlesByRange: Record<string, CandleSnapshotDto[]>
+  yAxisLabels: string[]
+  xAxisLabels: string[]
+}) {
   const candlesByRange: Record<string, CandleSpec[]> = Object.fromEntries(
     card.timeRanges.map((range) => [range, toCandleSpec(card.candlesByRange[range] ?? [])]),
   )
@@ -135,21 +128,64 @@ function toCardModel(card: StockCardSnapshotDto): StockCardModel {
   )
 
   return {
-    symbol: card.symbol,
-    percentChange: card.percentChange,
     timeRanges: card.timeRanges,
     activeRange: card.activeRange,
     yAxisLabelsByRange,
     xAxisLabelsByRange,
     gridLines: DEFAULT_GRID_LINES,
     candlesByRange,
+  }
+}
+
+function toCardModel(card: StockCardSnapshotDto, cardId: string): StockCardModel {
+  const chart = mapChartModel(card)
+  return {
+    cardId,
+    symbol: card.symbol,
+    percentChange: card.percentChange,
+    timeRanges: chart.timeRanges,
+    activeRange: chart.activeRange,
+    yAxisLabelsByRange: chart.yAxisLabelsByRange,
+    xAxisLabelsByRange: chart.xAxisLabelsByRange,
+    gridLines: chart.gridLines,
+    candlesByRange: chart.candlesByRange,
     buyLabel: card.buyLabel,
     shortLabel: card.shortLabel,
   }
 }
 
 export function mapSnapshotToStockCards(snapshot: DashboardSnapshotDto): StockCardModel[] {
-  const merged = [...snapshot.topGainers, ...snapshot.topLosers]
+  const gainers = snapshot.topGainers.slice(0, 5).map((card, index) => toCardModel(card, `gainer-${index}-${card.symbol}`))
+  const losers = snapshot.topLosers.slice(0, 5).map((card, index) => toCardModel(card, `loser-${index}-${card.symbol}`))
 
-  return uniqueBySymbol(merged).slice(0, 10).map(toCardModel)
+  return [...gainers, ...losers]
+}
+
+function toTransactionModel(transaction: TransactionSnapshotDto): TransactionCardModel {
+  const chart = mapChartModel(transaction)
+
+  return {
+    transactionId: transaction.transactionId,
+    symbol: transaction.symbol,
+    timeRanges: chart.timeRanges,
+    activeRange: chart.activeRange,
+    yAxisLabelsByRange: chart.yAxisLabelsByRange,
+    xAxisLabelsByRange: chart.xAxisLabelsByRange,
+    gridLines: chart.gridLines,
+    candlesByRange: chart.candlesByRange,
+    positionType: transaction.positionType,
+    status: transaction.status,
+    openTimestamp: transaction.openTimestamp,
+    closeTimestamp: transaction.closeTimestamp,
+    entryPrice: transaction.entryPrice,
+    exitPrice: transaction.exitPrice,
+    profitLoss: transaction.profitLoss,
+    closeActionLabel: transaction.closeActionLabel,
+  }
+}
+
+export function mapSnapshotToTransactions(snapshot: DashboardSnapshotDto): TransactionCardModel[] {
+  return [...(snapshot.transactions ?? [])]
+    .sort((left, right) => new Date(right.openTimestamp).getTime() - new Date(left.openTimestamp).getTime())
+    .map(toTransactionModel)
 }

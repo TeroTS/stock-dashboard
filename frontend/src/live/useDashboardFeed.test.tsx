@@ -34,6 +34,38 @@ const snapshot: DashboardSnapshotDto = {
     },
   ],
   topLosers: [],
+  transactions: [
+    {
+      transactionId: 'tx-1',
+      symbol: 'NVDA',
+      timeRanges: ['5min', '30min', '120min'],
+      activeRange: '5min',
+      candlesByRange: {
+        '5min': [
+          {
+            bucketStart: '2026-03-01T12:05:00Z',
+            open: 303,
+            high: 304,
+            low: 302,
+            close: 303.5,
+            volume: 500,
+          },
+        ],
+        '30min': [],
+        '120min': [],
+      },
+      yAxisLabels: ['304.00', '303.00', '302.00'],
+      xAxisLabels: ['12:05'],
+      positionType: 'LONG',
+      status: 'OPEN',
+      openTimestamp: '2026-03-01T12:04:30Z',
+      closeTimestamp: null,
+      entryPrice: 300,
+      exitPrice: null,
+      profitLoss: null,
+      closeActionLabel: 'Sell',
+    },
+  ],
 }
 
 function createFakeClientFactory() {
@@ -61,6 +93,7 @@ describe('useDashboardFeed', () => {
 
     expect(result.current.status).toBe('fallback')
     expect(result.current.cards.length).toBeGreaterThan(0)
+    expect(result.current.transactions).toEqual([])
   })
 
   it('switches to live cards when snapshot arrives', () => {
@@ -73,6 +106,7 @@ describe('useDashboardFeed', () => {
 
     expect(result.current.status).toBe('live')
     expect(result.current.cards[0].symbol).toBe('NVDA')
+    expect(result.current.transactions[0].transactionId).toBe('tx-1')
     expect(result.current.updatedAt).toBe('2026-03-01T12:05:00Z')
   })
 

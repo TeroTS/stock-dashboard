@@ -6,6 +6,9 @@ import com.stockdashboard.backend.domain.SymbolSessionState;
 import com.stockdashboard.backend.ranking.RankingEntry;
 import com.stockdashboard.backend.ranking.RankingResult;
 import com.stockdashboard.backend.session.SessionState;
+import com.stockdashboard.backend.transaction.PositionType;
+import com.stockdashboard.backend.transaction.TransactionRecord;
+import com.stockdashboard.backend.transaction.TransactionStatus;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -39,35 +42,26 @@ public class SnapshotAssembler {
       Instant generatedAt,
       SessionState sessionState,
       RankingResult ranking,
-      Map<String, SymbolSessionState> states) {
+      Map<String, SymbolSessionState> states,
+      List<TransactionRecord> transactions) {
     List<StockCardSnapshot> gainers = ranking.gainers().stream().map(entry -> toCard(entry, states)).toList();
     List<StockCardSnapshot> losers = ranking.losers().stream().map(entry -> toCard(entry, states)).toList();
+    List<TransactionCardSnapshot> transactionCards = transactions.stream().map(record -> toTransactionCard(record, states)).toList();
 
-    return new DashboardSnapshot(generatedAt, sessionState.name(), gainers, losers);
+    return new DashboardSnapshot(generatedAt, sessionState.name(), gainers, losers, transactionCards);
   }
 
   private StockCardSnapshot toCard(RankingEntry entry, Map<String, SymbolSessionState> states) {
     SymbolSessionState state = states.get(entry.symbol());
-
-    Map<String, List<CandleSnapshot>> candlesByRange = new LinkedHashMap<>();
-    for (RangeDefinition range : RangeDefinition.values()) {
-      List<CandleSnapshot> candles =
-          state.getSeries(range).asList().stream()
-              .map(this::toSnapshot)
-              .sorted(Comparator.comparing(CandleSnapshot::bucketStart))
-              .toList();
-      candlesByRange.put(range.getLabel(), candles);
-    }
-
-    List<CandleBucket> activeCandles = state.getSeries(RangeDefinition.FIVE_MIN).asList();
+    ChartPayload chartPayload = buildChartPayload(state);
     return new StockCardSnapshot(
         entry.symbol(),
         entry.percentChange(),
-        List.of("5min", "30min", "120min"),
-        "5min",
-        candlesByRange,
-        buildYAxisLabels(activeCandles, state),
-        buildXAxisLabels(activeCandles),
+        chartPayload.timeRanges(),
+        chartPayload.activeRange(),
+        chartPayload.candlesByRange(),
+        chartPayload.yAxisLabels(),
+        chartPayload.xAxisLabels(),
         "Buy",
         "Short");
   }
@@ -116,4 +110,67 @@ public class SnapshotAssembler {
   private String formatPrice(BigDecimal value) {
     return String.format(Locale.US, "%.2f", value);
   }
+
+  private TransactionCardSnapshot toTransactionCard(
+      TransactionRecord record, Map<String, SymbolSessionState> states) {
+    SymbolSessionState state = states.get(record.symbol());
+    ChartPayload chartPayload = buildChartPayload(state);
+
+    return new TransactionCardSnapshot(
+        record.transactionId(),
+        record.symbol(),
+        chartPayload.timeRanges(),
+        chartPayload.activeRange(),
+        chartPayload.candlesByRange(),
+        chartPayload.yAxisLabels(),
+        chartPayload.xAxisLabels(),
+        record.positionType().name(),
+        record.status().name(),
+        record.openTimestamp(),
+        record.closeTimestamp(),
+        record.entryPrice(),
+        record.exitPrice(),
+        record.profitLoss(),
+        closeActionLabel(record.positionType(), record.status()));
+  }
+
+  private String closeActionLabel(PositionType positionType, TransactionStatus status) {
+    if (status == TransactionStatus.CLOSED) {
+      return null;
+    }
+
+    return positionType == PositionType.LONG ? "Sell" : "Cover";
+  }
+
+  private ChartPayload buildChartPayload(SymbolSessionState state) {
+    if (state == null) {
+      return new ChartPayload(
+          List.of("5min", "30min", "120min"), "5min", Map.of("5min", List.of(), "30min", List.of(), "120min", List.of()), List.of(), List.of());
+    }
+
+    Map<String, List<CandleSnapshot>> candlesByRange = new LinkedHashMap<>();
+    for (RangeDefinition range : RangeDefinition.values()) {
+      List<CandleSnapshot> candles =
+          state.getSeries(range).asList().stream()
+              .map(this::toSnapshot)
+              .sorted(Comparator.comparing(CandleSnapshot::bucketStart))
+              .toList();
+      candlesByRange.put(range.getLabel(), candles);
+    }
+
+    List<CandleBucket> activeCandles = state.getSeries(RangeDefinition.FIVE_MIN).asList();
+    return new ChartPayload(
+        List.of("5min", "30min", "120min"),
+        "5min",
+        candlesByRange,
+        buildYAxisLabels(activeCandles, state),
+        buildXAxisLabels(activeCandles));
+  }
+
+  private record ChartPayload(
+      List<String> timeRanges,
+      String activeRange,
+      Map<String, List<CandleSnapshot>> candlesByRange,
+      List<String> yAxisLabels,
+      List<String> xAxisLabels) {}
 }

@@ -7,4 +7,5 @@ public record DashboardSnapshot(
     Instant generatedAt,
     String sessionState,
     List<StockCardSnapshot> topGainers,
-    List<StockCardSnapshot> topLosers) {}
+    List<StockCardSnapshot> topLosers,
+    List<TransactionCardSnapshot> transactions) {}

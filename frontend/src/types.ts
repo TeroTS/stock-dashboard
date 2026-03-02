@@ -20,6 +20,7 @@ export interface GridLineSpec {
 }
 
 export interface StockCardModel {
+  cardId: string
   symbol: string
   percentChange: number
   timeRanges: string[]
@@ -30,4 +31,26 @@ export interface StockCardModel {
   candlesByRange: Record<string, CandleSpec[]>
   buyLabel: string
   shortLabel: string
+}
+
+export type PositionType = 'LONG' | 'SHORT'
+export type TransactionStatus = 'OPEN' | 'CLOSED'
+
+export interface TransactionCardModel {
+  transactionId: string
+  symbol: string
+  timeRanges: string[]
+  activeRange: string
+  yAxisLabelsByRange: Record<string, string[]>
+  xAxisLabelsByRange: Record<string, string[]>
+  gridLines: GridLineSpec[]
+  candlesByRange: Record<string, CandleSpec[]>
+  positionType: PositionType
+  status: TransactionStatus
+  openTimestamp: string
+  closeTimestamp: string | null
+  entryPrice: number
+  exitPrice: number | null
+  profitLoss: number | null
+  closeActionLabel: string | null
 }

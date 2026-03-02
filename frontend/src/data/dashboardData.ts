@@ -181,6 +181,7 @@ export const CANDLES: CandleSpec[] = [
 ]
 
 export const STOCK_CARDS: StockCardModel[] = STOCK_SYMBOLS.map((symbol) => ({
+  cardId: `static-${symbol}`,
   symbol,
   percentChange: 0,
   timeRanges: TIME_RANGES,

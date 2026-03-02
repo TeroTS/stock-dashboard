@@ -4,6 +4,8 @@ import { useState } from 'react'
 
 interface StockCardProps {
   card: StockCardModel
+  onBuy?: () => void
+  onShort?: () => void
 }
 
 function formatPercentChange(value: number): string {
@@ -23,7 +25,7 @@ function percentClassName(value: number): string {
   return 'stock-change-neutral'
 }
 
-export function StockCard({ card }: StockCardProps) {
+export function StockCard({ card, onBuy, onShort }: StockCardProps) {
   const [selectedRange, setSelectedRange] = useState<string | null>(null)
 
   const activeRange =
@@ -45,7 +47,7 @@ export function StockCard({ card }: StockCardProps) {
         <div className="range-list">
           {card.timeRanges.map((range) => (
             <button
-              key={`${card.symbol}-${range}`}
+              key={`${card.cardId}-${range}`}
               className={`range-chip ${range === activeRange ? 'range-chip-active' : ''}`}
               type="button"
               onClick={() => setSelectedRange(range)}
@@ -60,7 +62,7 @@ export function StockCard({ card }: StockCardProps) {
         <div className="chart-main">
           <div className="y-axis">
             {yAxisLabels.map((label) => (
-              <span key={`${card.symbol}-${label}`} className="axis-text">
+              <span key={`${card.cardId}-${label}`} className="axis-text">
                 {label}
               </span>
             ))}
@@ -71,7 +73,7 @@ export function StockCard({ card }: StockCardProps) {
 
         <div className="x-axis">
           {xAxisLabels.map((label) => (
-            <span key={`${card.symbol}-${activeRange}-${label}`} className="axis-text">
+            <span key={`${card.cardId}-${activeRange}-${label}`} className="axis-text">
               {label}
             </span>
           ))}
@@ -79,10 +81,10 @@ export function StockCard({ card }: StockCardProps) {
       </section>
 
       <footer className="card-footer">
-        <button className="trade-button trade-button-buy" type="button">
+        <button className="trade-button trade-button-buy" type="button" onClick={onBuy}>
           {card.buyLabel}
         </button>
-        <button className="trade-button trade-button-short" type="button">
+        <button className="trade-button trade-button-short" type="button" onClick={onShort}>
           {card.shortLabel}
         </button>
       </footer>

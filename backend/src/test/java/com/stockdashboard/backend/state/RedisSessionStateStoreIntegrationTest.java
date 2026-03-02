@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.stockdashboard.backend.domain.SymbolSessionState;
 import com.stockdashboard.backend.session.MarketSessionService;
 import com.stockdashboard.backend.session.SessionLifecycleService;
+import com.stockdashboard.backend.transaction.InMemoryTransactionStore;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -62,7 +63,8 @@ class RedisSessionStateStoreIntegrationTest {
 
     MarketSessionService sessionService =
         new MarketSessionService(ZoneId.of("America/New_York"), LocalTime.of(9, 30), LocalTime.of(16, 0));
-    SessionLifecycleService lifecycleService = new SessionLifecycleService(sessionService, stateStore);
+    SessionLifecycleService lifecycleService =
+        new SessionLifecycleService(sessionService, stateStore, new InMemoryTransactionStore());
 
     lifecycleService.ensureCurrentSession(Instant.parse("2026-02-02T14:30:00Z"));
     lifecycleService.ensureCurrentSession(Instant.parse("2026-02-03T14:30:00Z"));

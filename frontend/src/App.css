@@ -72,7 +72,129 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(420px, 1fr));
   gap: 16px;
-  flex: 1;
+}
+
+.transactions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transactions-title {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 18px;
+  line-height: 22px;
+  font-weight: 700;
+}
+
+.transactions-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.transaction-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  background: #0f172a;
+}
+
+.transaction-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.transaction-title-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.transaction-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.transaction-symbol {
+  margin: 0;
+  color: #f8fafc;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 700;
+}
+
+.transaction-open-time {
+  margin: 2px 0 0;
+  color: #93c5fd;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+
+.transaction-position-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 13px;
+  font-weight: 700;
+}
+
+.transaction-position-long {
+  color: #dcfce7;
+  background: #166534;
+  border: 1px solid #22c55e;
+}
+
+.transaction-position-short {
+  color: #fee2e2;
+  background: #991b1b;
+  border: 1px solid #ef4444;
+}
+
+.transaction-values {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.transaction-line {
+  margin: 0;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 600;
+}
+
+.transaction-profit-positive {
+  color: #22c55e;
+}
+
+.transaction-profit-negative {
+  color: #ef4444;
+}
+
+.transaction-profit-neutral {
+  color: #94a3b8;
+}
+
+.transaction-footer {
+  display: flex;
+}
+
+.transaction-close-button {
+  background: #1d4ed8;
 }
 
 .stock-card {
@@ -242,6 +364,10 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-rows: repeat(3, minmax(360px, 1fr));
   }
+
+  .transactions-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1200px) {
@@ -249,12 +375,20 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: repeat(5, minmax(340px, 1fr));
   }
+
+  .transactions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
   .stock-grid {
     grid-template-columns: 1fr;
     grid-template-rows: none;
+  }
+
+  .transactions-grid {
+    grid-template-columns: 1fr;
   }
 
   .x-axis {

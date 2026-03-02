@@ -1,6 +1,7 @@
 package com.stockdashboard.backend.session;
 
 import com.stockdashboard.backend.state.SessionStateStore;
+import com.stockdashboard.backend.transaction.TransactionStore;
 import java.time.Instant;
 import java.time.LocalDate;
 import org.springframework.stereotype.Service;
@@ -10,10 +11,15 @@ public class SessionLifecycleService {
 
   private final MarketSessionService marketSessionService;
   private final SessionStateStore sessionStateStore;
+  private final TransactionStore transactionStore;
 
-  public SessionLifecycleService(MarketSessionService marketSessionService, SessionStateStore sessionStateStore) {
+  public SessionLifecycleService(
+      MarketSessionService marketSessionService,
+      SessionStateStore sessionStateStore,
+      TransactionStore transactionStore) {
     this.marketSessionService = marketSessionService;
     this.sessionStateStore = sessionStateStore;
+    this.transactionStore = transactionStore;
   }
 
   public void ensureCurrentSession(Instant now) {
@@ -24,6 +30,7 @@ public class SessionLifecycleService {
     LocalDate currentDate = marketSessionService.getSessionDate(now);
     if (sessionStateStore.getCurrentSessionDate().isEmpty()) {
       sessionStateStore.clearAllSessions();
+      transactionStore.clearAllSessions();
       sessionStateStore.setCurrentSessionDate(currentDate);
       return;
     }
@@ -31,6 +38,7 @@ public class SessionLifecycleService {
     LocalDate storedDate = sessionStateStore.getCurrentSessionDate().orElseThrow();
     if (!storedDate.equals(currentDate)) {
       sessionStateStore.clearAllSessions();
+      transactionStore.clearAllSessions();
       sessionStateStore.setCurrentSessionDate(currentDate);
     }
   }

@@ -11,6 +11,7 @@ import com.stockdashboard.backend.session.MarketSessionService;
 import com.stockdashboard.backend.session.SessionLifecycleService;
 import com.stockdashboard.backend.session.SessionState;
 import com.stockdashboard.backend.state.SessionStateStore;
+import com.stockdashboard.backend.transaction.InMemoryTransactionStore;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -72,7 +73,8 @@ public class TickIngestService {
         watchlist,
         sessionStateStore,
         marketSessionService,
-        new SessionLifecycleService(marketSessionService, sessionStateStore),
+        new SessionLifecycleService(
+            marketSessionService, sessionStateStore, new InMemoryTransactionStore()),
         Validation.buildDefaultValidatorFactory().getValidator(),
         new SimpleMeterRegistry(),
         new IngestConnectivityTracker(),

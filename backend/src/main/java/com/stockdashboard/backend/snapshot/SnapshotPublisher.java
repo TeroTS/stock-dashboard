@@ -9,12 +9,15 @@ import com.stockdashboard.backend.session.MarketSessionService;
 import com.stockdashboard.backend.session.SessionLifecycleService;
 import com.stockdashboard.backend.session.SessionState;
 import com.stockdashboard.backend.state.SessionStateStore;
+import com.stockdashboard.backend.transaction.TransactionRecord;
+import com.stockdashboard.backend.transaction.TransactionService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -31,6 +34,7 @@ public class SnapshotPublisher {
   private final SessionLifecycleService lifecycleService;
   private final SessionStateStore stateStore;
   private final RankingService rankingService;
+  private final TransactionService transactionService;
   private final SnapshotAssembler snapshotAssembler;
   private final SimpMessagingTemplate messagingTemplate;
   private final SnapshotFreshnessTracker snapshotFreshnessTracker;
@@ -43,6 +47,7 @@ public class SnapshotPublisher {
       SessionLifecycleService lifecycleService,
       SessionStateStore stateStore,
       RankingService rankingService,
+      TransactionService transactionService,
       SnapshotAssembler snapshotAssembler,
       SimpMessagingTemplate messagingTemplate,
       SnapshotFreshnessTracker snapshotFreshnessTracker,
@@ -53,6 +58,7 @@ public class SnapshotPublisher {
     this.lifecycleService = lifecycleService;
     this.stateStore = stateStore;
     this.rankingService = rankingService;
+    this.transactionService = transactionService;
     this.snapshotAssembler = snapshotAssembler;
     this.messagingTemplate = messagingTemplate;
     this.snapshotFreshnessTracker = snapshotFreshnessTracker;
@@ -73,10 +79,14 @@ public class SnapshotPublisher {
       lifecycleService.ensureCurrentSession(now);
       LocalDate sessionDate = sessionService.getSessionDate(now);
       Map<String, com.stockdashboard.backend.domain.SymbolSessionState> states = stateStore.findAll(sessionDate);
-      RankingResult ranking = rankingService.rank(states.values());
+      Set<String> openSymbols = transactionService.findOpenSymbols(sessionDate);
+      RankingResult ranking =
+          rankingService.rank(states.values().stream().filter(state -> !openSymbols.contains(state.getSymbol())).toList());
+      java.util.List<TransactionRecord> transactions = transactionService.findAll(sessionDate);
 
       long buildStartedAt = System.nanoTime();
-      DashboardSnapshot snapshot = snapshotAssembler.assemble(now, SessionState.OPEN, ranking, states);
+      DashboardSnapshot snapshot =
+          snapshotAssembler.assemble(now, SessionState.OPEN, ranking, states, transactions);
       long buildDurationNanos = System.nanoTime() - buildStartedAt;
 
       long publishStartedAt = System.nanoTime();

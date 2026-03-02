@@ -100,7 +100,7 @@ class WebSocketSnapshotContractIntegrationTest {
 
     assertThat(first).isNotNull();
     assertThat(second).isNotNull();
-    assertThat(first).containsKeys("generatedAt", "sessionState", "topGainers", "topLosers");
+    assertThat(first).containsKeys("generatedAt", "sessionState", "topGainers", "topLosers", "transactions");
 
     List<Map<String, Object>> gainers = (List<Map<String, Object>>) first.get("topGainers");
     List<Map<String, Object>> losers = (List<Map<String, Object>>) first.get("topLosers");
