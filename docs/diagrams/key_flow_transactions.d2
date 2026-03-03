@@ -1,0 +1,21 @@
+title: Key Flow: Transaction Lifecycle
+
+user: "Dashboard User"
+frontend: "Frontend Transaction Actions"
+tx_api: "Transaction API"
+tx_service: "Transaction Service"
+session_gate: "Session and Symbol Checks"
+session_state: "Session State Store"
+tx_store: "Transaction Store"
+snapshot_publisher: "Snapshot Publisher"
+snapshot_topic: "Dashboard Snapshot Topic"
+
+user -> frontend: clicks buy/short/sell/cover
+frontend -> tx_api: posts open or close command
+tx_api -> tx_service: validates and routes
+tx_service -> session_gate: enforces open-session rules
+tx_service -> session_state: reads latest symbol price
+tx_service -> tx_store: writes transaction state
+snapshot_publisher -> tx_store: reads transactions
+snapshot_publisher -> snapshot_topic: publishes updated snapshot
+frontend -> snapshot_topic: consumes updated transaction cards

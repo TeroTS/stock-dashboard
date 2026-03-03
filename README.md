@@ -49,6 +49,9 @@ docker compose down -v
 Detailed E2E steps: see `docs/local-testing.md`.
 Operational checks and metrics catalog: see `docs/operations.md`.
 Production readiness checks: see `docs/production-hardening-checklist.md`.
+Architecture and boundaries: see `docs/architecture.md`.
+Boundary model contracts: see `docs/data-models.md`.
+Local runbook: see `docs/running.md`.
 
 ## Local development (without Compose)
 

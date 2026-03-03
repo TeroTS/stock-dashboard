@@ -1,0 +1,21 @@
+title: Key Flow: Realtime Snapshot Pipeline
+
+tick_source: "Tick Source"
+tick_ingest: "Tick Ingest"
+session_lifecycle: "Session Lifecycle Gate"
+session_state: "Session State Store"
+ranking: "Ranking Service"
+snapshot_builder: "Snapshot Assembler"
+snapshot_publisher: "Snapshot Publisher"
+topic: "Dashboard Snapshot Topic"
+frontend: "Frontend Feed Client"
+
+tick_source -> tick_ingest: sends normalized tick
+tick_ingest -> session_lifecycle: checks current session
+tick_ingest -> session_state: writes symbol state and candles
+snapshot_publisher -> session_lifecycle: checks current session
+snapshot_publisher -> session_state: reads all symbol state
+snapshot_publisher -> ranking: computes gainers and losers
+snapshot_publisher -> snapshot_builder: assembles snapshot model
+snapshot_publisher -> topic: publishes dashboard snapshot
+frontend -> topic: subscribes

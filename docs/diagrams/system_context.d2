@@ -1,0 +1,15 @@
+title: System Context
+
+dashboard_user: "Dashboard User"
+frontend_app: "Dashboard Frontend"
+realtime_backend: "Realtime Feed Service"
+tick_source: "Tick Source"
+session_store: "Session State Store"
+ops_tools: "Ops Monitoring Tools"
+
+dashboard_user -> frontend_app: views and trades
+frontend_app -> realtime_backend: calls transaction API
+frontend_app -> realtime_backend: subscribes snapshot stream
+tick_source -> realtime_backend: publishes ticks
+realtime_backend -> session_store: reads/writes intraday state
+ops_tools -> realtime_backend: scrapes health and metrics

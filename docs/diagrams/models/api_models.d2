@@ -1,0 +1,35 @@
+title: Boundary Models: API and Snapshot Payloads
+
+normalized_tick: {
+  label: "NormalizedTick\n- timestamp\n- symbol\n- price\n- volume"
+}
+
+dashboard_snapshot: {
+  label: "DashboardSnapshot\n- generatedAt\n- sessionState\n- topGainers[]\n- topLosers[]\n- transactions[]"
+}
+
+stock_card_snapshot: {
+  label: "StockCardSnapshot\n- symbol\n- percentChange\n- timeRanges[]\n- activeRange\n- candlesByRange\n- yAxisLabels[]\n- xAxisLabels[]\n- buyLabel\n- shortLabel"
+}
+
+transaction_card_snapshot: {
+  label: "TransactionCardSnapshot\n- transactionId\n- symbol\n- positionType\n- status\n- openTimestamp\n- closeTimestamp?\n- entryPrice\n- exitPrice?\n- profitLoss?\n- closeActionLabel?"
+}
+
+candle_snapshot: {
+  label: "CandleSnapshot\n- bucketStart\n- open\n- high\n- low\n- close\n- volume"
+}
+
+open_transaction_request: {
+  label: "OpenTransactionRequest\n- symbol\n- positionType"
+}
+
+transaction_record: {
+  label: "TransactionRecord\n- transactionId\n- symbol\n- positionType\n- openTimestamp\n- closeTimestamp?\n- entryPrice\n- exitPrice?\n- profitLoss?\n- status"
+}
+
+dashboard_snapshot -> stock_card_snapshot: contains
+dashboard_snapshot -> transaction_card_snapshot: contains
+stock_card_snapshot -> candle_snapshot: references
+transaction_card_snapshot -> candle_snapshot: references
+open_transaction_request -> transaction_record: creates

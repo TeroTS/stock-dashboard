@@ -1,0 +1,40 @@
+title: Boundary Models: Session and Transaction Persistence
+
+symbol_session_state: {
+  label: "SymbolSessionState\n- symbol\n- sessionDate\n- openPrice?\n- latestPrice?\n- candlesByRange"
+}
+
+rolling_series: {
+  label: "RollingCandleSeries\n- bucketSeconds\n- maxBuckets\n- buckets[]"
+}
+
+candle_bucket: {
+  label: "CandleBucket\n- bucketStart\n- open\n- high\n- low\n- close\n- volume"
+}
+
+transaction_record: {
+  label: "TransactionRecord\n- transactionId\n- symbol\n- positionType\n- openTimestamp\n- closeTimestamp?\n- entryPrice\n- exitPrice?\n- profitLoss?\n- status"
+}
+
+session_symbols_set: {
+  label: "Redis Set: session symbols\nstock-dashboard:session:{date}:symbols"
+}
+
+session_state_key: {
+  label: "Redis Value: symbol state\nstock-dashboard:session:{date}:symbol:{symbol}"
+}
+
+transaction_ids_set: {
+  label: "Redis Set: transaction IDs\nstock-dashboard:transactions:session:{date}:ids"
+}
+
+transaction_key: {
+  label: "Redis Value: transaction\nstock-dashboard:transactions:session:{date}:tx:{id}"
+}
+
+symbol_session_state -> rolling_series: contains
+rolling_series -> candle_bucket: contains
+session_symbols_set -> session_state_key: indexes
+session_state_key -> symbol_session_state: stores
+transaction_ids_set -> transaction_key: indexes
+transaction_key -> transaction_record: stores

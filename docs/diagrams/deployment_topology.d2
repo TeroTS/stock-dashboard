@@ -1,0 +1,22 @@
+title: Deployment Topology
+
+browser_node: "Client Runtime"
+frontend_node: "Frontend Runtime"
+backend_node: "Backend Runtime"
+state_node: "State Store Runtime"
+monitoring_node: "Monitoring Runtime"
+
+frontend_app: "Dashboard Frontend"
+backend_app: "Realtime Feed Service"
+state_store: "Session and Transaction Store"
+monitoring_tools: "Prometheus and Grafana"
+
+browser_node -> frontend_app
+frontend_node -> frontend_app
+backend_node -> backend_app
+state_node -> state_store
+monitoring_node -> monitoring_tools
+
+frontend_app -> backend_app: websocket and HTTP traffic
+backend_app -> state_store: state persistence
+monitoring_tools -> backend_app: health and metrics scraping
