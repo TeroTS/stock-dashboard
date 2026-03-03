@@ -1,6 +1,8 @@
 spring:
   application:
     name: stock-dashboard-backend
+  profiles:
+    default: local
   data:
     redis:
       host: localhost
@@ -19,18 +21,6 @@ market:
     tick-interval-ms: 200
   redis:
     max-retries: 3
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics,info,prometheus
-  endpoint:
-    health:
-      show-details: always
-  metrics:
-    tags:
-      application: ${spring.application.name}
 
 logging:
   structured:

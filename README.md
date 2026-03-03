@@ -48,6 +48,7 @@ docker compose down -v
 
 Detailed E2E steps: see `docs/local-testing.md`.
 Operational checks and metrics catalog: see `docs/operations.md`.
+Production readiness checks: see `docs/production-hardening-checklist.md`.
 
 ## Local development (without Compose)
 
@@ -97,12 +98,23 @@ mvn package
 Frontend feed config (optional):
 - `VITE_WS_URL` (default `ws://localhost:8080/ws/dashboard`)
 - `VITE_WS_TOPIC` (default `/topic/dashboard-snapshots`)
+- `VITE_API_BASE_URL` (default `http://localhost:8080`)
 
 Backend Redis/session config (optional via env):
 - `SPRING_DATA_REDIS_HOST` (default `localhost`)
 - `SPRING_DATA_REDIS_PORT` (default `6379`)
 - `MARKET_SESSION_OPEN` (example `09:30`)
 - `MARKET_SESSION_CLOSE` (example `16:00`)
+
+Backend production-hardening config:
+- `SPRING_PROFILES_ACTIVE=prod` enables production defaults (`application-prod.yaml`)
+- `APP_SECURITY_ALLOWED_ORIGINS` comma-separated browser origins allowed for `/api/**` and `/ws/dashboard`
+  - Example: `APP_SECURITY_ALLOWED_ORIGINS=https://dashboard.example.com,https://ops.example.com`
+
+Frontend production hosting requirements (implementation-agnostic):
+- deep-link routes must fall back to the SPA entry document
+- hashed static assets should be long-cacheable
+- the SPA entry document should be non-cached / revalidated
 
 ## Spec-driven development
 

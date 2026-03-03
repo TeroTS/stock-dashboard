@@ -16,11 +16,16 @@ Default data policy:
 
 ## Metrics
 
-Primary endpoint:
+Local profile (`spring.profiles.default=local`) endpoint:
 - `GET /actuator/prometheus`
 
 Health endpoint:
 - `GET /actuator/health`
+
+Production profile (`SPRING_PROFILES_ACTIVE=prod`) defaults:
+- exposed actuator endpoints: `health`, `info`
+- `/actuator/prometheus` is not exposed unless explicitly reconfigured
+- health details are hidden (`management.endpoint.health.show-details=never`)
 
 Core custom metrics:
 - `pipeline_ticks_total{symbol,result}`
@@ -46,6 +51,15 @@ Access:
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 
+## Cross-Origin Policy
+
+Backend CORS and WebSocket origin checks are allowlist-driven via:
+- `APP_SECURITY_ALLOWED_ORIGINS`
+
+Behavior:
+- if unset, cross-origin browser calls are denied by default
+- if set, only listed origins can access `/api/**` and `ws://.../ws/dashboard`
+
 ## Troubleshooting checklist
 
 1. Check backend health:
@@ -57,6 +71,7 @@ curl http://localhost:8080/actuator/health
 ```bash
 curl http://localhost:8080/actuator/prometheus | rg pipeline_
 ```
+Note: this applies to local/default profile; prod profile hides this endpoint unless explicitly enabled.
 
 3. Check backend logs for structured failure events:
 - `tick_processing_failed`

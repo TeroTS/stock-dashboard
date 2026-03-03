@@ -13,7 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties(MarketProperties.class)
+@EnableConfigurationProperties({MarketProperties.class, AppSecurityProperties.class})
 public class AppConfig {
 
   @Bean

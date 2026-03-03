@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -22,9 +24,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(TransactionController.class)
+@TestPropertySource(properties = "app.security.allowed-origins=http://allowed-client.example")
 class TransactionControllerTest {
 
   private static final Instant NOW = Instant.parse("2026-03-03T14:30:00Z");
@@ -172,5 +176,26 @@ class TransactionControllerTest {
 
     verify(marketSessionService).getSessionDate(eq(NOW));
     verify(transactionService).findAll(any(LocalDate.class));
+  }
+
+  @Test
+  void allowsPreflightForConfiguredOrigin() throws Exception {
+    mockMvc
+        .perform(
+            options("/api/transactions")
+                .header("Origin", "http://allowed-client.example")
+                .header("Access-Control-Request-Method", "POST"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", "http://allowed-client.example"));
+  }
+
+  @Test
+  void rejectsPreflightForNonAllowlistedOrigin() throws Exception {
+    mockMvc
+        .perform(
+            options("/api/transactions")
+                .header("Origin", "http://evil-client.example")
+                .header("Access-Control-Request-Method", "POST"))
+        .andExpect(status().isForbidden());
   }
 }

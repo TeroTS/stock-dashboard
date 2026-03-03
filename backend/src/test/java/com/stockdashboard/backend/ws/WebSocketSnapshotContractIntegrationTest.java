@@ -1,12 +1,14 @@
 package com.stockdashboard.backend.ws;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
@@ -36,6 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
       "market.mock-ingest.enabled=true",
       "market.mock-ingest.tick-interval-ms=120",
       "market.snapshot-cadence-ms=1000",
+      "app.security.allowed-origins=http://allowed-client.example",
       "market.session.timezone=America/New_York",
       "market.session.open=00:00",
       "market.session.close=23:59"
@@ -65,13 +68,7 @@ class WebSocketSnapshotContractIntegrationTest {
     stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
     StompSession session =
-        stompClient
-            .connectAsync(
-                "ws://localhost:" + port + "/ws/dashboard",
-                new WebSocketHttpHeaders(),
-                new StompHeaders(),
-                new StompSessionHandlerAdapter() {})
-            .get(5, TimeUnit.SECONDS);
+        connectWithOrigin(stompClient, "http://allowed-client.example");
 
     session.subscribe(
         "/topic/dashboard-snapshots",
@@ -130,5 +127,27 @@ class WebSocketSnapshotContractIntegrationTest {
     assertThat(diffMillis).isLessThanOrEqualTo(cadenceMillis + 750);
 
     session.disconnect();
+  }
+
+  @Test
+  void rejectsWebSocketHandshakeForNonAllowlistedOrigin() {
+    WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
+    stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+
+    assertThatThrownBy(() -> connectWithOrigin(stompClient, "http://evil-client.example"))
+        .isInstanceOf(ExecutionException.class);
+  }
+
+  private StompSession connectWithOrigin(WebSocketStompClient stompClient, String origin)
+      throws Exception {
+    WebSocketHttpHeaders webSocketHeaders = new WebSocketHttpHeaders();
+    webSocketHeaders.setOrigin(origin);
+    return stompClient
+        .connectAsync(
+            "ws://localhost:" + port + "/ws/dashboard",
+            webSocketHeaders,
+            new StompHeaders(),
+            new StompSessionHandlerAdapter() {})
+        .get(5, TimeUnit.SECONDS);
   }
 }

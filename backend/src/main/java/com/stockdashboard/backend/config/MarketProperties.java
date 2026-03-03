@@ -3,6 +3,7 @@ package com.stockdashboard.backend.config;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "market")
@@ -125,6 +126,37 @@ public class MarketProperties {
 
     public void setMaxRetries(int maxRetries) {
       this.maxRetries = maxRetries;
+    }
+  }
+
+  @PostConstruct
+  void validate() {
+    if (watchlist == null || watchlist.isEmpty()) {
+      throw new IllegalStateException("market.watchlist must not be empty");
+    }
+
+    if (watchlist.stream().anyMatch(symbol -> symbol == null || symbol.isBlank())) {
+      throw new IllegalStateException("market.watchlist must not contain blank symbols");
+    }
+
+    if (snapshotCadenceMs <= 0) {
+      throw new IllegalStateException("market.snapshot-cadence-ms must be greater than zero");
+    }
+
+    if (ingestHealthThresholdMs <= 0) {
+      throw new IllegalStateException("market.ingest-health-threshold-ms must be greater than zero");
+    }
+
+    if (session == null || session.getOpen() == null || session.getClose() == null) {
+      throw new IllegalStateException("market.session.open and market.session.close are required");
+    }
+
+    if (!session.getOpen().isBefore(session.getClose())) {
+      throw new IllegalStateException("market.session.open must be before market.session.close");
+    }
+
+    if (redis == null || redis.getMaxRetries() <= 0) {
+      throw new IllegalStateException("market.redis.max-retries must be greater than zero");
     }
   }
 }

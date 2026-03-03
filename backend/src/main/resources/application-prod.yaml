@@ -1,0 +1,24 @@
+market:
+  mock-ingest:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+server:
+  shutdown: graceful
+  tomcat:
+    connection-timeout: 5s
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
