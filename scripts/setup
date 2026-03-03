@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MAVEN_REPO="${ROOT_DIR}/.m2/repository"
+BACKEND_DIR="${ROOT_DIR}/backend"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
+
+die() {
+  echo "[setup] error: $*" >&2
+  exit 1
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    die "$1 is required but not found in PATH"
+  fi
+}
+
+resolve_maven_cmd() {
+  if [[ -x "${BACKEND_DIR}/mvnw" ]]; then
+    echo "${BACKEND_DIR}/mvnw"
+    return
+  fi
+
+  if command -v mvn >/dev/null 2>&1; then
+    echo "mvn"
+    return
+  fi
+
+  die "backend/mvnw is missing and mvn is not installed"
+}
+
+resolve_expected_pnpm() {
+  node --input-type=module -e 'import fs from "node:fs";
+const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (typeof pkg.packageManager === "string" && pkg.packageManager.startsWith("pnpm@")) {
+  process.stdout.write(pkg.packageManager);
+}' "${FRONTEND_DIR}/package.json"
+}
+
+ensure_pnpm() {
+  local expected_pnpm=""
+  expected_pnpm="$(resolve_expected_pnpm)"
+
+  if command -v pnpm >/dev/null 2>&1; then
+    if [[ -n "${expected_pnpm}" ]]; then
+      local actual_pnpm
+      local expected_version
+      actual_pnpm="$(pnpm --version)"
+      expected_version="${expected_pnpm#pnpm@}"
+      if [[ "${actual_pnpm}" != "${expected_version}" ]]; then
+        echo "[setup] warning: expected ${expected_pnpm}, found pnpm@${actual_pnpm}"
+      fi
+    fi
+    return
+  fi
+
+  if [[ -n "${expected_pnpm}" ]] && command -v corepack >/dev/null 2>&1; then
+    echo "[setup] pnpm not found; activating ${expected_pnpm} with corepack"
+    corepack prepare "${expected_pnpm}" --activate >/dev/null
+    return
+  fi
+
+  if [[ -n "${expected_pnpm}" ]]; then
+    die "pnpm is required (${expected_pnpm}); install pnpm or enable corepack"
+  fi
+
+  die "pnpm is required but not found in PATH"
+}
+
+echo "[setup] starting deterministic project setup"
+
+require_command node
+require_command java
+
+ensure_pnpm
+MAVEN_CMD="$(resolve_maven_cmd)"
+
+echo "[setup] installing frontend dependencies with frozen lockfile"
+CI=true pnpm --dir "${FRONTEND_DIR}" install --frozen-lockfile
+
+echo "[setup] prefetching backend dependencies with ${MAVEN_CMD##*/}"
+"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests dependency:go-offline
+
+echo "[setup] setup completed"

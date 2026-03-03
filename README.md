@@ -53,19 +53,34 @@ Architecture and boundaries: see `docs/architecture.md`.
 Boundary model contracts: see `docs/data-models.md`.
 Local runbook: see `docs/running.md`.
 
+## Agent Golden Path
+
+From repository root:
+
+```bash
+./scripts/setup
+./scripts/verify
+```
+
+Authoritative agent workflow and repo rules:
+- `AGENTS.md`
+- `.codex/instructions.md`
+
 ## Local development (without Compose)
 
 Prerequisites:
 - Node.js 22+
-- `pnpm`
 - Java 21
-- Maven 3.9+
 - Redis on `localhost:6379`
+
+Tooling is pinned for deterministic local/CI runs:
+- `frontend/package.json` pins `pnpm` via `packageManager`
+- `backend/mvnw` pins Maven via `.mvn/wrapper/maven-wrapper.properties`
 
 Run backend (from `backend/`):
 
 ```bash
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 Run frontend (from `frontend/`):
@@ -88,9 +103,20 @@ pnpm build
 Backend (from `backend/`):
 
 ```bash
-mvn test
-mvn package
+./mvnw test
+./mvnw package
 ```
+
+## CI parity
+
+GitHub Actions executes `.github/workflows/verify.yml`, which calls:
+
+```bash
+./scripts/setup
+./scripts/verify
+```
+
+This keeps local validation and CI behavior aligned.
 
 ## Runtime contract
 

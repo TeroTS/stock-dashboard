@@ -1,7 +1,11 @@
 # Agent/tooling
-.codex
+.codex/*
+!.codex/README.md
+!.codex/instructions.md
 .playwright
 output/
+.m2/
+.pnpm-store/
 
 # OS/editor
 .DS_Store

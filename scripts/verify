@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MAVEN_REPO="${ROOT_DIR}/.m2/repository"
+BACKEND_DIR="${ROOT_DIR}/backend"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
+
+step() {
+  echo
+  echo "[verify] $1"
+}
+
+die() {
+  echo "[verify] error: $*" >&2
+  exit 1
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    die "$1 is required but not found in PATH"
+  fi
+}
+
+resolve_maven_cmd() {
+  if [[ -x "${BACKEND_DIR}/mvnw" ]]; then
+    echo "${BACKEND_DIR}/mvnw"
+    return
+  fi
+
+  if command -v mvn >/dev/null 2>&1; then
+    echo "mvn"
+    return
+  fi
+
+  die "backend/mvnw is missing and mvn is not installed"
+}
+
+require_command node
+require_command java
+require_command pnpm
+MAVEN_CMD="$(resolve_maven_cmd)"
+
+step "1/5 format-check"
+echo "[verify] no dedicated formatter configured; skipping format-check"
+
+step "2/5 lint (frontend)"
+CI=true pnpm --dir "${FRONTEND_DIR}" lint
+
+step "3/5 typecheck (frontend)"
+CI=true pnpm --dir "${FRONTEND_DIR}" exec tsc -b --pretty false
+
+step "4/5 tests (frontend + backend)"
+CI=true pnpm --dir "${FRONTEND_DIR}" test
+"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" test
+
+step "5/5 build (frontend + backend)"
+CI=true pnpm --dir "${FRONTEND_DIR}" build
+"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests package
+
+echo
+echo "[verify] all checks passed"
