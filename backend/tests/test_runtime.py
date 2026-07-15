@@ -32,7 +32,7 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
     settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL", "TSLA", "NVDA"))
     market_state = MarketState()
 
-    assert market_state.apply_update(
+    first_result = market_state.apply_update(
         settings.watchlist,
         AggregateUpdate(
             symbol="AAPL",
@@ -40,8 +40,8 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
             close=105.0,
             end_timestamp=1_000,
         ),
-    ) is True
-    assert market_state.apply_update(
+    )
+    second_result = market_state.apply_update(
         settings.watchlist,
         AggregateUpdate(
             symbol="TSLA",
@@ -49,8 +49,8 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
             close=190.0,
             end_timestamp=1_100,
         ),
-    ) is True
-    assert market_state.apply_update(
+    )
+    ignored_result = market_state.apply_update(
         settings.watchlist,
         AggregateUpdate(
             symbol="NVDA",
@@ -58,7 +58,11 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
             close=300.0,
             end_timestamp=1_200,
         ),
-    ) is False
+    )
+
+    assert first_result.accepted is True
+    assert second_result.accepted is True
+    assert ignored_result.accepted is False
 
     snapshot = market_state.snapshot()
 
@@ -134,7 +138,7 @@ def test_market_state_fills_pending_open_on_next_same_symbol_update() -> None:
 
     assert accepted == {"transactionId": "tx-000001", "status": "PENDING_OPEN"}
 
-    market_state.apply_update(
+    fill_result = market_state.apply_update(
         settings.watchlist,
         AggregateUpdate(
             symbol="AAPL",
@@ -145,6 +149,10 @@ def test_market_state_fills_pending_open_on_next_same_symbol_update() -> None:
     )
 
     snapshot = market_state.snapshot()
+
+    assert fill_result.accepted is True
+    assert fill_result.filled_open is market_state.transactions[0]
+    assert fill_result.filled_close is None
 
     assert snapshot["updatedAt"] == 1_100
     assert snapshot["topGainers"] == []
@@ -217,6 +225,160 @@ def test_market_state_keeps_pending_open_until_same_symbol_update_arrives() -> N
             "points": [{"timestamp": 1_000, "close": 101.5}],
         }
     ]
+
+
+def test_market_state_fills_pending_close_on_next_same_symbol_update() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=102.0,
+            end_timestamp=1_100,
+        ),
+    )
+
+    accepted = market_state.close_transaction("tx-000001", submitted_at=1_150)
+
+    assert accepted == {"transactionId": "tx-000001", "status": "PENDING_CLOSE"}
+
+    fill_result = market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=103.0,
+            end_timestamp=1_200,
+        ),
+    )
+
+    snapshot = market_state.snapshot()
+
+    assert fill_result.accepted is True
+    assert fill_result.filled_open is None
+    assert fill_result.filled_close is market_state.transactions[0]
+
+    assert snapshot["updatedAt"] == 1_200
+    assert snapshot["topGainers"][0]["symbol"] == "AAPL"
+    assert snapshot["transactions"] == [
+        {
+            "transactionId": "tx-000001",
+            "symbol": "AAPL",
+            "positionType": "LONG",
+            "status": "CLOSED",
+            "submittedAt": 1_050,
+            "openedAt": 1_100,
+            "closedAt": 1_200,
+            "entryPrice": 102.0,
+            "exitPrice": 103.0,
+            "profitLoss": 100.0,
+            "points": [
+                {"timestamp": 1_000, "close": 101.5},
+                {"timestamp": 1_100, "close": 102.0},
+                {"timestamp": 1_200, "close": 103.0},
+            ],
+        }
+    ]
+
+
+def test_market_state_closes_short_transaction_with_short_profit_loss() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    market_state.open_transaction("AAPL", "SHORT", submitted_at=1_050)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=102.0,
+            end_timestamp=1_100,
+        ),
+    )
+    market_state.close_transaction("tx-000001", submitted_at=1_150)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=100.0,
+            end_timestamp=1_200,
+        ),
+    )
+
+    assert market_state.snapshot()["transactions"][0]["profitLoss"] == 200.0
+
+
+def test_market_state_freezes_closed_transaction_points_after_close() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=102.0,
+            end_timestamp=1_100,
+        ),
+    )
+    market_state.close_transaction("tx-000001", submitted_at=1_150)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=103.0,
+            end_timestamp=1_200,
+        ),
+    )
+
+    closed_points = market_state.snapshot()["transactions"][0]["points"]
+
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=104.0,
+            end_timestamp=1_300,
+        ),
+    )
+
+    snapshot = market_state.snapshot()
+
+    assert snapshot["transactions"][0]["points"] == closed_points
+    assert snapshot["transactions"][0]["points"][-1] == {"timestamp": 1_200, "close": 103.0}
+    assert snapshot["topGainers"][0]["points"][-1] == {"timestamp": 1_300, "close": 104.0}
 
 
 def test_market_state_rejections_are_domain_errors_without_http_fields() -> None:

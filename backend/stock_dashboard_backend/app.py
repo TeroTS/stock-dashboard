@@ -8,17 +8,32 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 
-from stock_dashboard_backend.market_state import PositionType, TransactionCommandRejected
+from stock_dashboard_backend.market_state import (
+    ERROR_LATEST_PRICE_UNAVAILABLE,
+    ERROR_SYMBOL_TRANSACTION_CONFLICT,
+    ERROR_TRANSACTION_NOT_FOUND,
+    ERROR_TRANSACTION_STATE_CONFLICT,
+    PositionType,
+    TransactionCommandRejected,
+)
 from stock_dashboard_backend.runtime import Runtime, Settings
 
 TRANSACTION_COMMAND_ERROR_RESPONSES = {
-    "latest_price_unavailable": (
+    ERROR_LATEST_PRICE_UNAVAILABLE: (
         422,
         "Latest symbol price is unavailable; command was not queued.",
     ),
-    "symbol_transaction_conflict": (
+    ERROR_SYMBOL_TRANSACTION_CONFLICT: (
         409,
         "Symbol already has an active or pending transaction.",
+    ),
+    ERROR_TRANSACTION_NOT_FOUND: (
+        404,
+        "Transaction was not found.",
+    ),
+    ERROR_TRANSACTION_STATE_CONFLICT: (
+        409,
+        "Transaction cannot be closed from its current state.",
     ),
 }
 
@@ -68,6 +83,14 @@ def create_app(
     ) -> dict[str, str]:
         runtime: Runtime = request.app.state.runtime
         return await runtime.open_transaction(command.symbol, command.positionType)
+
+    @app.post("/api/transactions/{transaction_id}/close", status_code=202)
+    async def close_transaction(
+        transaction_id: str,
+        request: Request,
+    ) -> dict[str, str]:
+        runtime: Runtime = request.app.state.runtime
+        return await runtime.close_transaction(transaction_id)
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

@@ -3,11 +3,16 @@
 import time
 from collections.abc import Collection
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 PositionType = Literal["LONG", "SHORT"]
 TransactionStatus = Literal["PENDING_OPEN", "OPEN", "PENDING_CLOSE", "CLOSED"]
 ACTIVE_TRANSACTION_STATUSES = {"PENDING_OPEN", "OPEN", "PENDING_CLOSE"}
+FIXED_SHARE_QUANTITY = 100
+ERROR_LATEST_PRICE_UNAVAILABLE = "latest_price_unavailable"
+ERROR_SYMBOL_TRANSACTION_CONFLICT = "symbol_transaction_conflict"
+ERROR_TRANSACTION_NOT_FOUND = "transaction_not_found"
+ERROR_TRANSACTION_STATE_CONFLICT = "transaction_state_conflict"
 
 
 @dataclass(slots=True, frozen=True)
@@ -90,6 +95,15 @@ class TransactionCommandRejected(Exception):
     code: str
 
 
+@dataclass(slots=True, frozen=True)
+class ApplyUpdateResult:
+    """Outcome of one accepted or ignored aggregate update."""
+
+    accepted: bool
+    filled_open: TransactionState | None = None
+    filled_close: TransactionState | None = None
+
+
 class MarketState:
     """Owns watched-symbol state mutation, transaction state, and full snapshot assembly."""
 
@@ -100,9 +114,9 @@ class MarketState:
         self._next_transaction_id = 1
 
     # Keep symbol state and point history aligned with the websocket snapshot contract.
-    def apply_update(self, watchlist: Collection[str], update: AggregateUpdate) -> bool:
+    def apply_update(self, watchlist: Collection[str], update: AggregateUpdate) -> ApplyUpdateResult:
         if update.official_open_price is None or update.symbol not in watchlist:
-            return False
+            return ApplyUpdateResult(accepted=False)
 
         state = self.symbols.get(update.symbol)
         points = state.points.copy() if state else []
@@ -125,9 +139,13 @@ class MarketState:
             percent_change=percent_change,
             points=points,
         )
-        self._sync_live_transactions(update, points)
+        filled_open, filled_close = self._sync_live_transactions(update, points)
         self.updated_at = update.end_timestamp
-        return True
+        return ApplyUpdateResult(
+            accepted=True,
+            filled_open=filled_open,
+            filled_close=filled_close,
+        )
 
     # Reject opens without live state and hide symbols once they already have a live transaction.
     def open_transaction(
@@ -138,10 +156,10 @@ class MarketState:
     ) -> dict[str, str]:
         symbol_state = self.symbols.get(symbol)
         if symbol_state is None:
-            raise TransactionCommandRejected(code="latest_price_unavailable")
+            raise TransactionCommandRejected(code=ERROR_LATEST_PRICE_UNAVAILABLE)
 
         if self._has_active_transaction(symbol):
-            raise TransactionCommandRejected(code="symbol_transaction_conflict")
+            raise TransactionCommandRejected(code=ERROR_SYMBOL_TRANSACTION_CONFLICT)
 
         transaction_id = f"tx-{self._next_transaction_id:06d}"
         self._next_transaction_id += 1
@@ -162,6 +180,19 @@ class MarketState:
         )
         self.updated_at = submitted_at
         return {"transactionId": transaction_id, "status": "PENDING_OPEN"}
+
+    # Only open transactions can be queued for next-tick close fills.
+    def close_transaction(self, transaction_id: str, submitted_at: int) -> dict[str, str]:
+        transaction = self._transaction_by_id(transaction_id)
+        if transaction is None:
+            raise TransactionCommandRejected(code=ERROR_TRANSACTION_NOT_FOUND)
+
+        if transaction.status != "OPEN":
+            raise TransactionCommandRejected(code=ERROR_TRANSACTION_STATE_CONFLICT)
+
+        transaction.status = "PENDING_CLOSE"
+        self.updated_at = submitted_at
+        return {"transactionId": transaction_id, "status": "PENDING_CLOSE"}
 
     # Each websocket message is a full replacement snapshot for the frontend read model.
     def snapshot(self) -> dict[str, Any]:
@@ -190,14 +221,53 @@ class MarketState:
             for transaction in self.transactions
         )
 
+    def _transaction_by_id(self, transaction_id: str) -> TransactionState | None:
+        return next(
+            (
+                transaction
+                for transaction in self.transactions
+                if transaction.transaction_id == transaction_id
+            ),
+            None,
+        )
+
     # Live transaction charts mirror accepted symbol updates until the position is closed.
-    def _sync_live_transactions(self, update: AggregateUpdate, points: list[LinePoint]) -> None:
+    def _sync_live_transactions(
+        self,
+        update: AggregateUpdate,
+        points: list[LinePoint],
+    ) -> tuple[TransactionState | None, TransactionState | None]:
+        filled_open: TransactionState | None = None
+        filled_close: TransactionState | None = None
+
         for transaction in self.transactions:
             if transaction.symbol != update.symbol or transaction.status == "CLOSED":
                 continue
 
             transaction.points = points.copy()
+            if transaction.status == "PENDING_CLOSE":
+                transaction.status = "CLOSED"
+                transaction.closed_at = update.end_timestamp
+                transaction.exit_price = update.close
+                transaction.profit_loss = self._profit_loss(transaction, update.close)
+                filled_close = transaction
+                continue
+
             if transaction.status == "PENDING_OPEN":
                 transaction.status = "OPEN"
                 transaction.opened_at = update.end_timestamp
                 transaction.entry_price = update.close
+                filled_open = transaction
+
+        return filled_open, filled_close
+
+    def _profit_loss(self, transaction: TransactionState, exit_price: float) -> float:
+        entry_price = transaction.entry_price
+        assert entry_price is not None
+
+        if transaction.position_type == "LONG":
+            raw_profit_loss = (exit_price - entry_price) * FIXED_SHARE_QUANTITY
+        else:
+            raw_profit_loss = (entry_price - exit_price) * FIXED_SHARE_QUANTITY
+
+        return round(raw_profit_loss, 2)

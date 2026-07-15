@@ -16,6 +16,22 @@ function formatProfitLoss(value: number | null): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}`
 }
 
+function profitLossClassName(value: number | null): string {
+  if (value === null) {
+    return 'transaction-profit-neutral'
+  }
+
+  if (value > 0) {
+    return 'transaction-profit-positive'
+  }
+
+  if (value < 0) {
+    return 'transaction-profit-negative'
+  }
+
+  return 'transaction-profit-neutral'
+}
+
 // Open transactions are the only ones that still expose a user action in the current contract.
 function closeLabel(transaction: TransactionCardModel): string | null {
   if (transaction.status !== 'OPEN') {
@@ -26,6 +42,7 @@ function closeLabel(transaction: TransactionCardModel): string | null {
 
 export function TransactionCard({ transaction, onClose }: TransactionCardProps) {
   const actionLabel = closeLabel(transaction)
+  const isClosed = transaction.status === 'CLOSED'
 
   return (
     <article className="transaction-card" data-testid={`transaction-${transaction.transactionId}`}>
@@ -34,15 +51,22 @@ export function TransactionCard({ transaction, onClose }: TransactionCardProps) 
           <p className="transaction-symbol">{transaction.symbol}</p>
           <p className="transaction-open-time">Status: {transaction.status}</p>
         </div>
-        <span className={`transaction-position-badge transaction-position-${transaction.positionType.toLowerCase()}`}>
-          {transaction.positionType}
-        </span>
+        <div className="transaction-header-right">
+          <span className={`transaction-position-badge transaction-position-${transaction.positionType.toLowerCase()}`}>
+            {transaction.positionType}
+          </span>
+          {isClosed ? (
+            <p className={`transaction-profit-header ${profitLossClassName(transaction.profitLoss)}`}>
+              {formatProfitLoss(transaction.profitLoss)}
+            </p>
+          ) : null}
+        </div>
       </header>
 
       <section className="transaction-values">
         <p className="transaction-line">Entry: {formatPrice(transaction.entryPrice)}</p>
         <p className="transaction-line">Exit: {formatPrice(transaction.exitPrice)}</p>
-        <p className="transaction-line">P/L: {formatProfitLoss(transaction.profitLoss)}</p>
+        {isClosed ? null : <p className="transaction-line">P/L: {formatProfitLoss(transaction.profitLoss)}</p>}
         <p className="transaction-line">Points: {transaction.points.length}</p>
       </section>
 

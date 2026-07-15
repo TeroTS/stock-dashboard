@@ -125,24 +125,26 @@ class Runtime:
         self.publisher.disconnect(websocket)
 
     async def apply_update(self, update: AggregateUpdate) -> None:
-        pending_open = next(
-            (
-                transaction
-                for transaction in self.market_state.transactions
-                if transaction.symbol == update.symbol and transaction.status == "PENDING_OPEN"
-            ),
-            None,
-        )
-        if not self.market_state.apply_update(self.settings.watchlist, update):
+        result = self.market_state.apply_update(self.settings.watchlist, update)
+        if not result.accepted:
             return
 
-        if pending_open is not None and pending_open.status == "OPEN":
+        if result.filled_open is not None:
             logger.info(
                 "event=transaction_open_fill outcome=filled transactionId=%s symbol=%s openedAt=%s entryPrice=%s",
-                pending_open.transaction_id,
-                pending_open.symbol,
-                pending_open.opened_at,
-                pending_open.entry_price,
+                result.filled_open.transaction_id,
+                result.filled_open.symbol,
+                result.filled_open.opened_at,
+                result.filled_open.entry_price,
+            )
+
+        if result.filled_close is not None:
+            logger.info(
+                "event=transaction_close_fill outcome=filled transactionId=%s symbol=%s closedAt=%s exitPrice=%s",
+                result.filled_close.transaction_id,
+                result.filled_close.symbol,
+                result.filled_close.closed_at,
+                result.filled_close.exit_price,
             )
 
         await self.publisher.broadcast(self.market_state.snapshot())
@@ -172,6 +174,29 @@ class Runtime:
             accepted["transactionId"],
             symbol,
             position_type,
+            accepted["status"],
+        )
+        await self.publisher.broadcast(self.market_state.snapshot())
+        return accepted
+
+    async def close_transaction(self, transaction_id: str) -> dict[str, str]:
+        try:
+            accepted = self.market_state.close_transaction(
+                transaction_id,
+                int(time.time() * 1000),
+            )
+        except TransactionCommandRejected as error:
+            logger.warning(
+                "event=transaction_close outcome=rejected transactionId=%s reason=%s errorCode=%s",
+                transaction_id,
+                error.code,
+                error.code,
+            )
+            raise
+
+        logger.info(
+            "event=transaction_close outcome=accepted transactionId=%s status=%s",
+            accepted["transactionId"],
             accepted["status"],
         )
         await self.publisher.broadcast(self.market_state.snapshot())

@@ -319,6 +319,129 @@ def test_pending_open_publishes_filled_snapshot_on_next_same_symbol_update() -> 
     }
 
 
+def test_close_transaction_returns_pending_snapshot_and_closes_on_next_same_symbol_update() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        transaction_id = open_response.json()["transactionId"]
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            close_response = client.post(f"/api/transactions/{transaction_id}/close")
+            assert close_response.status_code == 202
+            assert close_response.json() == {"transactionId": transaction_id, "status": "PENDING_CLOSE"}
+            pending_close_snapshot = websocket.receive_json()
+            asyncio.run(
+                runtime.apply_update(
+                    AggregateUpdate(
+                        symbol="AAPL",
+                        official_open_price=100.0,
+                        close=103.0,
+                        end_timestamp=1_700_000_000_300,
+                    )
+                )
+            )
+            closed_snapshot = websocket.receive_json()
+
+    assert pending_close_snapshot["transactions"][0]["status"] == "PENDING_CLOSE"
+    assert closed_snapshot["topGainers"][0]["symbol"] == "AAPL"
+    assert closed_snapshot["transactions"] == [
+        {
+            "transactionId": transaction_id,
+            "symbol": "AAPL",
+            "positionType": "LONG",
+            "status": "CLOSED",
+            "submittedAt": closed_snapshot["transactions"][0]["submittedAt"],
+            "openedAt": 1_700_000_000_200,
+            "closedAt": 1_700_000_000_300,
+            "entryPrice": 102.0,
+            "exitPrice": 103.0,
+            "profitLoss": 100.0,
+            "points": [
+                {"timestamp": 1_700_000_000_100, "close": 101.5},
+                {"timestamp": 1_700_000_000_200, "close": 102.0},
+                {"timestamp": 1_700_000_000_300, "close": 103.0},
+            ],
+        }
+    ]
+
+
+def test_close_transaction_rejects_unknown_transaction_id() -> None:
+    with TestClient(
+        create_app(
+            Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+            runtime_factory=ManualRuntime,
+        )
+    ) as client:
+        response = client.post("/api/transactions/tx-missing/close")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "code": "transaction_not_found",
+        "message": "Transaction was not found.",
+    }
+
+
+def test_close_transaction_rejects_transactions_that_are_not_open() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+
+        response = client.post(f"/api/transactions/{open_response.json()['transactionId']}/close")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "transaction_state_conflict",
+        "message": "Transaction cannot be closed from its current state.",
+    }
+
+
 def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
     app = create_app(
         Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),

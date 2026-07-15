@@ -150,6 +150,14 @@
   font-weight: 700;
 }
 
+.transaction-profit-header {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 700;
+}
+
 .transaction-position-long {
   color: #dcfce7;
   background: #166534;
