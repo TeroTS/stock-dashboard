@@ -11,6 +11,17 @@ from starlette.websockets import WebSocketState
 from stock_dashboard_backend.market_state import PositionType, TransactionCommandRejected
 from stock_dashboard_backend.runtime import Runtime, Settings
 
+TRANSACTION_COMMAND_ERROR_RESPONSES = {
+    "latest_price_unavailable": (
+        422,
+        "Latest symbol price is unavailable; command was not queued.",
+    ),
+    "symbol_transaction_conflict": (
+        409,
+        "Symbol already has an active or pending transaction.",
+    ),
+}
+
 
 class OpenTransactionRequest(BaseModel):
     symbol: str
@@ -40,9 +51,10 @@ def create_app(
         _request: Request,
         error: TransactionCommandRejected,
     ) -> JSONResponse:
+        status_code, message = TRANSACTION_COMMAND_ERROR_RESPONSES[error.code]
         return JSONResponse(
-            status_code=error.status_code,
-            content={"code": error.code, "message": error.message},
+            status_code=status_code,
+            content={"code": error.code, "message": message},
         )
 
     @app.get("/health")

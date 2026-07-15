@@ -125,8 +125,25 @@ class Runtime:
         self.publisher.disconnect(websocket)
 
     async def apply_update(self, update: AggregateUpdate) -> None:
-        if not self.market_state.apply_update(self.settings, update):
+        pending_open = next(
+            (
+                transaction
+                for transaction in self.market_state.transactions
+                if transaction.symbol == update.symbol and transaction.status == "PENDING_OPEN"
+            ),
+            None,
+        )
+        if not self.market_state.apply_update(self.settings.watchlist, update):
             return
+
+        if pending_open is not None and pending_open.status == "OPEN":
+            logger.info(
+                "event=transaction_open_fill outcome=filled transactionId=%s symbol=%s openedAt=%s entryPrice=%s",
+                pending_open.transaction_id,
+                pending_open.symbol,
+                pending_open.opened_at,
+                pending_open.entry_price,
+            )
 
         await self.publisher.broadcast(self.market_state.snapshot())
 
@@ -145,7 +162,7 @@ class Runtime:
             logger.warning(
                 "event=transaction_open outcome=rejected symbol=%s reason=%s errorCode=%s",
                 symbol,
-                error.message,
+                error.code,
                 error.code,
             )
             raise

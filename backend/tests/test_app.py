@@ -252,6 +252,73 @@ def test_open_transaction_returns_pending_snapshot_and_hides_symbol_from_stock_g
     }
 
 
+def test_pending_open_publishes_filled_snapshot_on_next_same_symbol_update() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+            response = client.post(
+                "/api/transactions",
+                json={"symbol": "AAPL", "positionType": "LONG"},
+            )
+            pending_snapshot = websocket.receive_json()
+            asyncio.run(
+                runtime.apply_update(
+                    AggregateUpdate(
+                        symbol="AAPL",
+                        official_open_price=100.0,
+                        close=102.25,
+                        end_timestamp=1_700_000_000_200,
+                    )
+                )
+            )
+            filled_snapshot = websocket.receive_json()
+
+    accepted = response.json()
+
+    assert response.status_code == 202
+    assert pending_snapshot["transactions"][0]["status"] == "PENDING_OPEN"
+    assert filled_snapshot == {
+        "updatedAt": 1_700_000_000_200,
+        "topGainers": [],
+        "topLosers": [],
+        "transactions": [
+            {
+                "transactionId": accepted["transactionId"],
+                "symbol": "AAPL",
+                "positionType": "LONG",
+                "status": "OPEN",
+                "submittedAt": filled_snapshot["transactions"][0]["submittedAt"],
+                "openedAt": 1_700_000_000_200,
+                "closedAt": None,
+                "entryPrice": 102.25,
+                "exitPrice": None,
+                "profitLoss": None,
+                "points": [
+                    {"timestamp": 1_700_000_000_100, "close": 101.5},
+                    {"timestamp": 1_700_000_000_200, "close": 102.25},
+                ],
+            }
+        ],
+    }
+
+
 def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
     app = create_app(
         Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),

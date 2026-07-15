@@ -1,6 +1,7 @@
 """Market-state models and snapshot assembly for the stock dashboard."""
 
 import time
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -84,11 +85,9 @@ class TransactionState:
 
 @dataclass(slots=True, frozen=True)
 class TransactionCommandRejected(Exception):
-    """Command rejection mapped directly to the HTTP error contract."""
+    """Domain rejection for invalid transaction commands."""
 
-    status_code: int
     code: str
-    message: str
 
 
 class MarketState:
@@ -101,12 +100,12 @@ class MarketState:
         self._next_transaction_id = 1
 
     # Keep symbol state and point history aligned with the websocket snapshot contract.
-    def apply_update(self, settings: Any, update: AggregateUpdate) -> bool:
-        if update.official_open_price is None or update.symbol not in settings.watchlist:
+    def apply_update(self, watchlist: Collection[str], update: AggregateUpdate) -> bool:
+        if update.official_open_price is None or update.symbol not in watchlist:
             return False
 
         state = self.symbols.get(update.symbol)
-        points = list(state.points) if state else []
+        points = state.points.copy() if state else []
         point = LinePoint(timestamp=update.end_timestamp, close=update.close)
 
         if points and points[-1].close == update.close:
@@ -126,6 +125,7 @@ class MarketState:
             percent_change=percent_change,
             points=points,
         )
+        self._sync_live_transactions(update, points)
         self.updated_at = update.end_timestamp
         return True
 
@@ -138,18 +138,10 @@ class MarketState:
     ) -> dict[str, str]:
         symbol_state = self.symbols.get(symbol)
         if symbol_state is None:
-            raise TransactionCommandRejected(
-                status_code=422,
-                code="latest_price_unavailable",
-                message="Latest symbol price is unavailable; command was not queued.",
-            )
+            raise TransactionCommandRejected(code="latest_price_unavailable")
 
         if self._has_active_transaction(symbol):
-            raise TransactionCommandRejected(
-                status_code=409,
-                code="symbol_transaction_conflict",
-                message="Symbol already has an active or pending transaction.",
-            )
+            raise TransactionCommandRejected(code="symbol_transaction_conflict")
 
         transaction_id = f"tx-{self._next_transaction_id:06d}"
         self._next_transaction_id += 1
@@ -165,7 +157,7 @@ class MarketState:
                 entry_price=None,
                 exit_price=None,
                 profit_loss=None,
-                points=list(symbol_state.points),
+                points=symbol_state.points.copy(),
             )
         )
         self.updated_at = submitted_at
@@ -197,3 +189,15 @@ class MarketState:
             transaction.symbol == symbol and transaction.status in ACTIVE_TRANSACTION_STATUSES
             for transaction in self.transactions
         )
+
+    # Live transaction charts mirror accepted symbol updates until the position is closed.
+    def _sync_live_transactions(self, update: AggregateUpdate, points: list[LinePoint]) -> None:
+        for transaction in self.transactions:
+            if transaction.symbol != update.symbol or transaction.status == "CLOSED":
+                continue
+
+            transaction.points = points.copy()
+            if transaction.status == "PENDING_OPEN":
+                transaction.status = "OPEN"
+                transaction.opened_at = update.end_timestamp
+                transaction.entry_price = update.close

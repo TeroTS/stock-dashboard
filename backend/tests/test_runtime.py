@@ -1,8 +1,9 @@
 import asyncio
 
+import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from stock_dashboard_backend.market_state import AggregateUpdate, MarketState
+from stock_dashboard_backend.market_state import AggregateUpdate, MarketState, TransactionCommandRejected
 from stock_dashboard_backend.runtime import Settings, SnapshotPublisher
 
 
@@ -32,7 +33,7 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
     market_state = MarketState()
 
     assert market_state.apply_update(
-        settings,
+        settings.watchlist,
         AggregateUpdate(
             symbol="AAPL",
             official_open_price=100.0,
@@ -41,7 +42,7 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
         ),
     ) is True
     assert market_state.apply_update(
-        settings,
+        settings.watchlist,
         AggregateUpdate(
             symbol="TSLA",
             official_open_price=200.0,
@@ -50,7 +51,7 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
         ),
     ) is True
     assert market_state.apply_update(
-        settings,
+        settings.watchlist,
         AggregateUpdate(
             symbol="NVDA",
             official_open_price=None,
@@ -71,7 +72,7 @@ def test_market_state_updates_last_point_when_price_is_unchanged() -> None:
     market_state = MarketState()
 
     market_state.apply_update(
-        settings,
+        settings.watchlist,
         AggregateUpdate(
             symbol="AAPL",
             official_open_price=100.0,
@@ -80,7 +81,7 @@ def test_market_state_updates_last_point_when_price_is_unchanged() -> None:
         ),
     )
     market_state.apply_update(
-        settings,
+        settings.watchlist,
         AggregateUpdate(
             symbol="AAPL",
             official_open_price=100.0,
@@ -100,7 +101,7 @@ def test_market_state_caps_point_history_at_300_items() -> None:
 
     for timestamp in range(301):
         market_state.apply_update(
-            settings,
+            settings.watchlist,
             AggregateUpdate(
                 symbol="AAPL",
                 official_open_price=100.0,
@@ -114,3 +115,117 @@ def test_market_state_caps_point_history_at_300_items() -> None:
     assert len(points) == 300
     assert points[0] == {"timestamp": 1, "close": 101.0}
     assert points[-1] == {"timestamp": 300, "close": 400.0}
+
+
+def test_market_state_fills_pending_open_on_next_same_symbol_update() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+
+    accepted = market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+
+    assert accepted == {"transactionId": "tx-000001", "status": "PENDING_OPEN"}
+
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=102.25,
+            end_timestamp=1_100,
+        ),
+    )
+
+    snapshot = market_state.snapshot()
+
+    assert snapshot["updatedAt"] == 1_100
+    assert snapshot["topGainers"] == []
+    assert snapshot["topLosers"] == []
+    assert snapshot["transactions"] == [
+        {
+            "transactionId": "tx-000001",
+            "symbol": "AAPL",
+            "positionType": "LONG",
+            "status": "OPEN",
+            "submittedAt": 1_050,
+            "openedAt": 1_100,
+            "closedAt": None,
+            "entryPrice": 102.25,
+            "exitPrice": None,
+            "profitLoss": None,
+            "points": [
+                {"timestamp": 1_000, "close": 101.5},
+                {"timestamp": 1_100, "close": 102.25},
+            ],
+        }
+    ]
+
+
+def test_market_state_keeps_pending_open_until_same_symbol_update_arrives() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL", "TSLA"))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="TSLA",
+            official_open_price=200.0,
+            close=199.0,
+            end_timestamp=1_010,
+        ),
+    )
+    market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="TSLA",
+            official_open_price=200.0,
+            close=198.0,
+            end_timestamp=1_100,
+        ),
+    )
+
+    assert market_state.snapshot()["transactions"] == [
+        {
+            "transactionId": "tx-000001",
+            "symbol": "AAPL",
+            "positionType": "LONG",
+            "status": "PENDING_OPEN",
+            "submittedAt": 1_050,
+            "openedAt": None,
+            "closedAt": None,
+            "entryPrice": None,
+            "exitPrice": None,
+            "profitLoss": None,
+            "points": [{"timestamp": 1_000, "close": 101.5}],
+        }
+    ]
+
+
+def test_market_state_rejections_are_domain_errors_without_http_fields() -> None:
+    market_state = MarketState()
+
+    with pytest.raises(TransactionCommandRejected) as error_info:
+        market_state.open_transaction("AAPL", "LONG", submitted_at=1_000)
+
+    error = error_info.value
+    assert error.code == "latest_price_unavailable"
+    assert not hasattr(error, "status_code")
+    assert not hasattr(error, "message")
