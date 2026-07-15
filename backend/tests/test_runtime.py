@@ -64,3 +64,53 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
     assert snapshot["updatedAt"] == 1_100
     assert [card["symbol"] for card in snapshot["topGainers"]] == ["AAPL", "TSLA"]
     assert [card["symbol"] for card in snapshot["topLosers"]] == ["TSLA", "AAPL"]
+
+
+def test_market_state_updates_last_point_when_price_is_unchanged() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+
+    market_state.apply_update(
+        settings,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=105.0,
+            end_timestamp=1_000,
+        ),
+    )
+    market_state.apply_update(
+        settings,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=105.0,
+            end_timestamp=1_100,
+        ),
+    )
+
+    snapshot = market_state.snapshot()
+
+    assert snapshot["topGainers"][0]["points"] == [{"timestamp": 1_100, "close": 105.0}]
+
+
+def test_market_state_caps_point_history_at_300_items() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+
+    for timestamp in range(301):
+        market_state.apply_update(
+            settings,
+            AggregateUpdate(
+                symbol="AAPL",
+                official_open_price=100.0,
+                close=100.0 + timestamp,
+                end_timestamp=timestamp,
+            ),
+        )
+
+    points = market_state.snapshot()["topGainers"][0]["points"]
+
+    assert len(points) == 300
+    assert points[0] == {"timestamp": 1, "close": 101.0}
+    assert points[-1] == {"timestamp": 300, "close": 400.0}
