@@ -2,58 +2,26 @@
 
 Real-time stock dashboard with:
 - `frontend/`: React 19 + TypeScript + Vite UI
-- `backend/`: Spring Boot 3.5 (Java 21) realtime feed service
-- `redis`: session/state storage for backend runtime
+- `backend/`: backend rewrite target is Python 3.12 + FastAPI with in-memory state
 
-The backend publishes dashboard snapshots over WebSocket/STOMP, and the frontend renders live stock cards from that stream.
+## Rewrite status
+
+Accepted target contracts now describe the backend rewrite:
+- `DECISIONS.md`
+- `SPEC.md`
+- `openapi.yaml`
+- `docs/contracts.md`
+
+Legacy Spring Boot files may still exist in `backend/` until the rewrite lands. Use the contract files above as the current source of truth for new work.
 
 ## Repository layout
 
 - `frontend/` UI app and frontend tests (Vitest + React Testing Library)
-- `backend/` realtime pipeline, WebSocket publishing, health endpoints, backend tests (JUnit + Testcontainers)
-- `infra/` infrastructure scaffolding
-- `openspec/` spec-driven artifacts (active specs and archived changes)
-- `docs/local-testing.md` local Docker Compose E2E workflow
+- `backend/` backend rewrite area
+- `docs/` contracts and supporting docs
+- `openspec/` legacy spec-driven artifacts and archives
 
-## Quick start (Docker Compose, recommended)
-
-From repository root:
-
-```bash
-docker compose up --build -d
-```
-
-Check status:
-
-```bash
-docker compose ps
-curl http://localhost:8080/actuator/health
-```
-
-Open app:
-- Frontend: `http://localhost:5173`
-- Backend health: `http://localhost:8080/actuator/health`
-
-Stop:
-
-```bash
-docker compose down
-```
-
-Full cleanup:
-
-```bash
-docker compose down -v
-```
-
-Detailed E2E steps: see `docs/local-testing.md`.
-Operational checks and metrics catalog: see `docs/operations.md`.
-Production readiness checks: see `docs/production-hardening-checklist.md`.
-Architecture and boundaries: see `docs/architecture.md`.
-Boundary model contracts: see `docs/data-models.md`.
-Local runbook: see `docs/running.md`.
-
-## Agent Golden Path
+## Quick start
 
 From repository root:
 
@@ -62,93 +30,53 @@ From repository root:
 ./scripts/verify
 ```
 
-Authoritative agent workflow and repo rules:
-- `AGENTS.md`
-- `.codex/instructions.md`
+During the migration, these scripts auto-detect the backend stack:
+- Python mode when `backend/pyproject.toml` or `backend/requirements*.txt` exists
+- legacy Maven mode otherwise, if `backend/pom.xml` still exists
 
-## Local development (without Compose)
+## Local development prerequisites
 
-Prerequisites:
 - Node.js 22+
-- Java 21
-- Redis on `localhost:6379`
+- `pnpm`
+- Python 3.12+ for the target backend
+- Docker for local container workflows
+- Java 21 only while the legacy backend is still present
 
-Tooling is pinned for deterministic local/CI runs:
-- `frontend/package.json` pins `pnpm` via `packageManager`
-- `backend/mvnw` pins Maven via `.mvn/wrapper/maven-wrapper.properties`
-
-Run backend (from `backend/`):
+## Frontend commands
 
 ```bash
-./mvnw spring-boot:run
+pnpm --dir frontend lint
+pnpm --dir frontend exec tsc -b --pretty false
+pnpm --dir frontend test
+pnpm --dir frontend build
 ```
-
-Run frontend (from `frontend/`):
-
-```bash
-pnpm install
-pnpm dev
-```
-
-## Test and quality commands
-
-Frontend (from `frontend/`):
-
-```bash
-pnpm test
-pnpm lint
-pnpm build
-```
-
-Backend (from `backend/`):
-
-```bash
-./mvnw test
-./mvnw package
-```
-
-## CI parity
-
-GitHub Actions executes `.github/workflows/verify.yml`, which calls:
-
-```bash
-./scripts/setup
-./scripts/verify
-```
-
-This keeps local validation and CI behavior aligned.
 
 ## Runtime contract
 
-- WebSocket endpoint: `ws://localhost:8080/ws/dashboard`
-- STOMP topic: `/topic/dashboard-snapshots`
-- Health endpoint: `GET /actuator/health`
+Accepted target runtime surface:
+- WebSocket endpoint: `ws://localhost:8080/ws`
+- Health endpoint: `GET /health`
+- Transaction commands:
+  - `POST /api/transactions`
+  - `POST /api/transactions/{id}/close`
 
-Frontend feed config (optional):
-- `VITE_WS_URL` (default `ws://localhost:8080/ws/dashboard`)
-- `VITE_WS_TOPIC` (default `/topic/dashboard-snapshots`)
-- `VITE_API_BASE_URL` (default `http://localhost:8080`)
+Frontend env vars:
+- `VITE_WS_URL` (target default `ws://localhost:8080/ws`)
+- `VITE_API_BASE_URL` (target default `http://localhost:8080`)
 
-Backend Redis/session config (optional via env):
-- `SPRING_DATA_REDIS_HOST` (default `localhost`)
-- `SPRING_DATA_REDIS_PORT` (default `6379`)
-- `MARKET_SESSION_OPEN` (example `09:30`)
-- `MARKET_SESSION_CLOSE` (example `16:00`)
+Backend env vars:
+- `FEED_MODE=mock|massive` (`mock` is the default target mode)
+- `MASSIVE_API_KEY` (required only for `FEED_MODE=massive`)
 
-Backend production-hardening config:
-- `SPRING_PROFILES_ACTIVE=prod` enables production defaults (`application-prod.yaml`)
-- `APP_SECURITY_ALLOWED_ORIGINS` comma-separated browser origins allowed for `/api/**` and `/ws/dashboard`
-  - Example: `APP_SECURITY_ALLOWED_ORIGINS=https://dashboard.example.com,https://ops.example.com`
+## Contract-first rewrite inputs
 
-Frontend production hosting requirements (implementation-agnostic):
-- deep-link routes must fall back to the SPA entry document
-- hashed static assets should be long-cacheable
-- the SPA entry document should be non-cached / revalidated
+Read these before backend implementation work:
+- `DECISIONS.md`
+- `SPEC.md`
+- `openapi.yaml`
+- `docs/contracts.md`
 
-## Spec-driven development
+## Notes
 
-Canonical accepted spec:
-- `openspec/specs/realtime-stock-dashboard-feed/spec.md`
-
-Archived changes:
-- `openspec/changes/archive/`
+- `README.md`, `AGENTS.md`, and root scripts now track the rewrite plan first.
+- Some older docs under `docs/` may still describe the legacy backend until they are rewritten alongside implementation.

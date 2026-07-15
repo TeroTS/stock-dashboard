@@ -22,6 +22,24 @@ require_command() {
   fi
 }
 
+resolve_python_cmd() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return
+  fi
+
+  die "python3 or python is required but not found in PATH"
+}
+
+has_python_backend() {
+  [[ -f "${BACKEND_DIR}/pyproject.toml" || -f "${BACKEND_DIR}/requirements-dev.txt" || -f "${BACKEND_DIR}/requirements.txt" ]]
+}
+
 resolve_maven_cmd() {
   if [[ -x "${BACKEND_DIR}/mvnw" ]]; then
     echo "${BACKEND_DIR}/mvnw"
@@ -36,10 +54,24 @@ resolve_maven_cmd() {
   die "backend/mvnw is missing and mvn is not installed"
 }
 
+verify_python_backend() {
+  local python_cmd="$1"
+  local pytest_target="${BACKEND_DIR}"
+
+  if [[ -d "${BACKEND_DIR}/tests" ]]; then
+    pytest_target="${BACKEND_DIR}/tests"
+  fi
+
+  "${python_cmd}" -m pytest "${pytest_target}" --cov="${BACKEND_DIR}" --cov-report=term-missing
+}
+
+build_python_backend() {
+  local python_cmd="$1"
+  "${python_cmd}" -m compileall "${BACKEND_DIR}"
+}
+
 require_command node
-require_command java
 require_command pnpm
-MAVEN_CMD="$(resolve_maven_cmd)"
 
 step "1/5 format-check"
 echo "[verify] no dedicated formatter configured; skipping format-check"
@@ -52,11 +84,31 @@ CI=true pnpm --dir "${FRONTEND_DIR}" exec tsc -b --pretty false
 
 step "4/5 tests (frontend + backend)"
 CI=true pnpm --dir "${FRONTEND_DIR}" test
-"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" test
+
+if has_python_backend; then
+  PYTHON_CMD="$(resolve_python_cmd)"
+  verify_python_backend "${PYTHON_CMD}"
+elif [[ -f "${BACKEND_DIR}/pom.xml" ]]; then
+  require_command java
+  MAVEN_CMD="$(resolve_maven_cmd)"
+  "${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" test
+else
+  echo "[verify] warning: no backend test manifest detected; skipping backend tests"
+fi
 
 step "5/5 build (frontend + backend)"
 CI=true pnpm --dir "${FRONTEND_DIR}" build
-"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests package
+
+if has_python_backend; then
+  PYTHON_CMD="${PYTHON_CMD:-$(resolve_python_cmd)}"
+  build_python_backend "${PYTHON_CMD}"
+elif [[ -f "${BACKEND_DIR}/pom.xml" ]]; then
+  require_command java
+  MAVEN_CMD="${MAVEN_CMD:-$(resolve_maven_cmd)}"
+  "${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests package
+else
+  echo "[verify] warning: no backend build manifest detected; skipping backend build"
+fi
 
 echo
 echo "[verify] all checks passed"

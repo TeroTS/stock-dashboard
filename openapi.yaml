@@ -1,0 +1,194 @@
+openapi: 3.0.3
+info:
+  title: Stock Dashboard Command API
+  version: 1.0.0
+  description: |
+    HTTP command surface for the Python stock dashboard backend rewrite.
+    Reads are snapshot-only over WebSocket; HTTP is used only for transaction commands
+    and health checks.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags:
+        - Health
+      summary: Health check
+      responses:
+        '200':
+          description: Backend is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                ok:
+                  value:
+                    status: ok
+  /api/transactions:
+    post:
+      operationId: openTransaction
+      tags:
+        - Transactions
+      summary: Submit a transaction open command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenTransactionRequest'
+            examples:
+              longOpen:
+                value:
+                  symbol: AAPL
+                  positionType: LONG
+              shortOpen:
+                value:
+                  symbol: TSLA
+                  positionType: SHORT
+      responses:
+        '202':
+          description: Open command accepted; transaction state will arrive via WebSocket snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionCommandAccepted'
+              examples:
+                accepted:
+                  value:
+                    transactionId: tx_01J0EXAMPLE
+                    status: PENDING_OPEN
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/transactions/{transactionId}/close:
+    post:
+      operationId: closeTransaction
+      tags:
+        - Transactions
+      summary: Submit a transaction close command
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      responses:
+        '202':
+          description: Close command accepted; transaction state will arrive via WebSocket snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionCommandAccepted'
+              examples:
+                accepted:
+                  value:
+                    transactionId: tx_01J0EXAMPLE
+                    status: PENDING_CLOSE
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+components:
+  parameters:
+    TransactionId:
+      name: transactionId
+      in: path
+      required: true
+      description: Backend-generated transaction identifier
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            transactionNotFound:
+              value:
+                code: transaction_not_found
+                message: Transaction was not found.
+    Conflict:
+      description: Command conflicts with current transaction or symbol state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            activeSymbolConflict:
+              value:
+                code: symbol_transaction_conflict
+                message: Symbol already has an active or pending transaction.
+            closeStateConflict:
+              value:
+                code: transaction_state_conflict
+                message: Transaction cannot be closed from its current state.
+    UnprocessableEntity:
+      description: Command cannot be queued because required live pricing state is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            latestPriceUnavailable:
+              value:
+                code: latest_price_unavailable
+                message: Latest symbol price is unavailable; command was not queued.
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+    OpenTransactionRequest:
+      type: object
+      required:
+        - symbol
+        - positionType
+      properties:
+        symbol:
+          type: string
+          minLength: 1
+          description: Watchlist symbol to trade
+          example: AAPL
+        positionType:
+          $ref: '#/components/schemas/PositionType'
+    PositionType:
+      type: string
+      enum:
+        - LONG
+        - SHORT
+    CommandStatus:
+      type: string
+      enum:
+        - PENDING_OPEN
+        - PENDING_CLOSE
+    TransactionCommandAccepted:
+      type: object
+      required:
+        - transactionId
+        - status
+      properties:
+        transactionId:
+          type: string
+          example: tx_01J0EXAMPLE
+        status:
+          $ref: '#/components/schemas/CommandStatus'
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          example: latest_price_unavailable
+        message:
+          type: string
+          example: Latest symbol price is unavailable; command was not queued.

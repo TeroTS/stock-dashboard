@@ -17,6 +17,24 @@ require_command() {
   fi
 }
 
+resolve_python_cmd() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return
+  fi
+
+  die "python3 or python is required but not found in PATH"
+}
+
+has_python_backend() {
+  [[ -f "${BACKEND_DIR}/pyproject.toml" || -f "${BACKEND_DIR}/requirements-dev.txt" || -f "${BACKEND_DIR}/requirements.txt" ]]
+}
+
 resolve_maven_cmd() {
   if [[ -x "${BACKEND_DIR}/mvnw" ]]; then
     echo "${BACKEND_DIR}/mvnw"
@@ -69,18 +87,47 @@ ensure_pnpm() {
   die "pnpm is required but not found in PATH"
 }
 
+setup_python_backend() {
+  local python_cmd="$1"
+
+  echo "[setup] installing backend Python dependencies"
+
+  if [[ -f "${BACKEND_DIR}/requirements-dev.txt" ]]; then
+    "${python_cmd}" -m pip install -r "${BACKEND_DIR}/requirements-dev.txt"
+    return
+  fi
+
+  if [[ -f "${BACKEND_DIR}/pyproject.toml" ]]; then
+    "${python_cmd}" -m pip install -e "${BACKEND_DIR}"
+    return
+  fi
+
+  if [[ -f "${BACKEND_DIR}/requirements.txt" ]]; then
+    "${python_cmd}" -m pip install -r "${BACKEND_DIR}/requirements.txt"
+    return
+  fi
+
+  die "python backend detected but no supported dependency manifest was found"
+}
+
 echo "[setup] starting deterministic project setup"
 
 require_command node
-require_command java
-
 ensure_pnpm
-MAVEN_CMD="$(resolve_maven_cmd)"
 
 echo "[setup] installing frontend dependencies with frozen lockfile"
 CI=true pnpm --dir "${FRONTEND_DIR}" install --frozen-lockfile
 
-echo "[setup] prefetching backend dependencies with ${MAVEN_CMD##*/}"
-"${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests dependency:go-offline
+if has_python_backend; then
+  PYTHON_CMD="$(resolve_python_cmd)"
+  setup_python_backend "${PYTHON_CMD}"
+elif [[ -f "${BACKEND_DIR}/pom.xml" ]]; then
+  require_command java
+  MAVEN_CMD="$(resolve_maven_cmd)"
+  echo "[setup] prefetching legacy backend dependencies with ${MAVEN_CMD##*/}"
+  "${MAVEN_CMD}" -f "${BACKEND_DIR}/pom.xml" -B -Dmaven.repo.local="${MAVEN_REPO}" -DskipTests dependency:go-offline
+else
+  echo "[setup] warning: no backend dependency manifest detected; skipping backend setup"
+fi
 
 echo "[setup] setup completed"
