@@ -442,6 +442,104 @@ def test_close_transaction_rejects_transactions_that_are_not_open() -> None:
     }
 
 
+def test_close_transaction_rejects_pending_close_transaction() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        transaction_id = open_response.json()["transactionId"]
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+        first_close_response = client.post(f"/api/transactions/{transaction_id}/close")
+        second_close_response = client.post(f"/api/transactions/{transaction_id}/close")
+
+    assert first_close_response.status_code == 202
+    assert second_close_response.status_code == 409
+    assert second_close_response.json() == {
+        "code": "transaction_state_conflict",
+        "message": "Transaction cannot be closed from its current state.",
+    }
+
+
+def test_close_transaction_rejects_closed_transaction() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        transaction_id = open_response.json()["transactionId"]
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+        first_close_response = client.post(f"/api/transactions/{transaction_id}/close")
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=103.0,
+                    end_timestamp=1_700_000_000_300,
+                )
+            )
+        )
+        second_close_response = client.post(f"/api/transactions/{transaction_id}/close")
+
+    assert first_close_response.status_code == 202
+    assert second_close_response.status_code == 409
+    assert second_close_response.json() == {
+        "code": "transaction_state_conflict",
+        "message": "Transaction cannot be closed from its current state.",
+    }
+
+
 def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
     app = create_app(
         Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
@@ -473,6 +571,101 @@ def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
     assert first_response.status_code == 202
     assert second_response.status_code == 409
     assert second_response.json() == {
+        "code": "symbol_transaction_conflict",
+        "message": "Symbol already has an active or pending transaction.",
+    }
+
+
+def test_open_transaction_rejects_symbol_with_open_transaction() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        first_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+
+        second_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "SHORT"},
+        )
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 409
+    assert second_response.json() == {
+        "code": "symbol_transaction_conflict",
+        "message": "Symbol already has an active or pending transaction.",
+    }
+
+
+
+def test_open_transaction_rejects_symbol_with_pending_close_transaction() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        transaction_id = open_response.json()["transactionId"]
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+        close_response = client.post(f"/api/transactions/{transaction_id}/close")
+
+        second_open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "SHORT"},
+        )
+
+    assert close_response.status_code == 202
+    assert second_open_response.status_code == 409
+    assert second_open_response.json() == {
         "code": "symbol_transaction_conflict",
         "message": "Symbol already has an active or pending transaction.",
     }
