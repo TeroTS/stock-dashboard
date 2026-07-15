@@ -5,6 +5,8 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Literal
 
+from stock_dashboard_backend.snapshot_builder import build_snapshot
+
 PositionType = Literal["LONG", "SHORT"]
 TransactionStatus = Literal["PENDING_OPEN", "OPEN", "PENDING_CLOSE", "CLOSED"]
 ACTIVE_TRANSACTION_STATUSES = {"PENDING_OPEN", "OPEN", "PENDING_CLOSE"}
@@ -13,6 +15,7 @@ ERROR_LATEST_PRICE_UNAVAILABLE = "latest_price_unavailable"
 ERROR_SYMBOL_TRANSACTION_CONFLICT = "symbol_transaction_conflict"
 ERROR_TRANSACTION_NOT_FOUND = "transaction_not_found"
 ERROR_TRANSACTION_STATE_CONFLICT = "transaction_state_conflict"
+ERROR_TRANSACTION_CANCEL_STATE_CONFLICT = "transaction_cancel_state_conflict"
 
 
 @dataclass(slots=True, frozen=True)
@@ -32,9 +35,6 @@ class LinePoint:
     timestamp: int
     close: float
 
-    def to_payload(self) -> dict[str, int | float]:
-        return {"timestamp": self.timestamp, "close": self.close}
-
 
 @dataclass(slots=True)
 class SymbolState:
@@ -45,15 +45,6 @@ class SymbolState:
     close: float
     percent_change: float
     points: list[LinePoint] = field(default_factory=list)
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "symbol": self.symbol,
-            "close": self.close,
-            "officialOpenPrice": self.official_open_price,
-            "percentChange": self.percent_change,
-            "points": [point.to_payload() for point in self.points],
-        }
 
 
 @dataclass(slots=True)
@@ -72,27 +63,15 @@ class TransactionState:
     profit_loss: float | None
     points: list[LinePoint] = field(default_factory=list)
 
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "transactionId": self.transaction_id,
-            "symbol": self.symbol,
-            "positionType": self.position_type,
-            "status": self.status,
-            "submittedAt": self.submitted_at,
-            "openedAt": self.opened_at,
-            "closedAt": self.closed_at,
-            "entryPrice": self.entry_price,
-            "exitPrice": self.exit_price,
-            "profitLoss": self.profit_loss,
-            "points": [point.to_payload() for point in self.points],
-        }
-
 
 @dataclass(slots=True, frozen=True)
 class TransactionCommandRejected(Exception):
     """Domain rejection for invalid transaction commands."""
 
     code: str
+
+    def __str__(self) -> str:
+        return self.code
 
 
 @dataclass(slots=True, frozen=True)
@@ -194,8 +173,20 @@ class MarketState:
         self.updated_at = submitted_at
         return {"transactionId": transaction_id, "status": "PENDING_CLOSE"}
 
+    def cancel_open_transaction(self, transaction_id: str, submitted_at: int) -> dict[str, str]:
+        transaction = self._transaction_by_id(transaction_id)
+        if transaction is None:
+            raise TransactionCommandRejected(code=ERROR_TRANSACTION_NOT_FOUND)
+
+        if transaction.status != "PENDING_OPEN":
+            raise TransactionCommandRejected(code=ERROR_TRANSACTION_CANCEL_STATE_CONFLICT)
+
+        self.transactions.remove(transaction)
+        self.updated_at = submitted_at
+        return {"transactionId": transaction_id, "status": "CANCELED"}
+
     # Each websocket message is a full replacement snapshot for the frontend read model.
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, object]:
         active_symbols = {
             transaction.symbol
             for transaction in self.transactions
@@ -208,12 +199,12 @@ class MarketState:
         top_losers = ranked[:5]
         top_gainers = reversed(ranked[-5:])
 
-        return {
-            "updatedAt": self.updated_at,
-            "topGainers": [state.to_payload() for state in top_gainers],
-            "topLosers": [state.to_payload() for state in top_losers],
-            "transactions": [transaction.to_payload() for transaction in self.transactions],
-        }
+        return build_snapshot(
+            updated_at=self.updated_at,
+            top_gainers=top_gainers,
+            top_losers=top_losers,
+            transactions=self.transactions,
+        )
 
     def _has_active_transaction(self, symbol: str) -> bool:
         return any(

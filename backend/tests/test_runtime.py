@@ -227,6 +227,56 @@ def test_market_state_keeps_pending_open_until_same_symbol_update_arrives() -> N
     ]
 
 
+def test_market_state_cancels_pending_open_and_returns_symbol_to_stock_grids() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    accepted = market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+
+    canceled = market_state.cancel_open_transaction(accepted["transactionId"], submitted_at=1_075)
+    snapshot = market_state.snapshot()
+
+    assert canceled == {"transactionId": accepted["transactionId"], "status": "CANCELED"}
+    assert snapshot["updatedAt"] == 1_075
+    assert snapshot["transactions"] == []
+    assert snapshot["topGainers"][0]["symbol"] == "AAPL"
+
+
+def test_market_state_rejects_cancel_open_for_non_pending_transactions() -> None:
+    settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
+    market_state = MarketState()
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=101.5,
+            end_timestamp=1_000,
+        ),
+    )
+    accepted = market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
+    market_state.apply_update(
+        settings.watchlist,
+        AggregateUpdate(
+            symbol="AAPL",
+            official_open_price=100.0,
+            close=102.0,
+            end_timestamp=1_100,
+        ),
+    )
+
+    with pytest.raises(TransactionCommandRejected, match="transaction_cancel_state_conflict"):
+        market_state.cancel_open_transaction(accepted["transactionId"], submitted_at=1_125)
+
+
 def test_market_state_fills_pending_close_on_next_same_symbol_update() -> None:
     settings = Settings(massive_api_key="test-api-key", watchlist=("AAPL",))
     market_state = MarketState()

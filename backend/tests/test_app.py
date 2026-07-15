@@ -115,6 +115,23 @@ def test_health_returns_ok_status() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_transaction_routes_support_frontend_cors_preflight() -> None:
+    with TestClient(create_app(Settings(), runtime_factory=IdleRuntime)) as client:
+        response = client.options(
+            "/api/transactions",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "content-type" in response.headers["access-control-allow-headers"]
+
+
 class ManualRuntime(Runtime):
     async def start(self) -> None:
         return None
@@ -319,6 +336,47 @@ def test_pending_open_publishes_filled_snapshot_on_next_same_symbol_update() -> 
     }
 
 
+def test_cancel_open_transaction_returns_snapshot_without_pending_transaction() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+
+        with client.websocket_connect("/ws") as websocket:
+            initial_snapshot = websocket.receive_json()
+            open_response = client.post(
+                "/api/transactions",
+                json={"symbol": "AAPL", "positionType": "LONG"},
+            )
+            websocket.receive_json()
+            cancel_response = client.post(
+                f"/api/transactions/{open_response.json()['transactionId']}/cancel-open"
+            )
+            canceled_snapshot = websocket.receive_json()
+
+    assert initial_snapshot["topGainers"][0]["symbol"] == "AAPL"
+    assert cancel_response.status_code == 202
+    assert cancel_response.json() == {
+        "transactionId": open_response.json()["transactionId"],
+        "status": "CANCELED",
+    }
+    assert canceled_snapshot["transactions"] == []
+    assert canceled_snapshot["topGainers"][0]["symbol"] == "AAPL"
+
+
 def test_close_transaction_returns_pending_snapshot_and_closes_on_next_same_symbol_update() -> None:
     app = create_app(
         Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
@@ -392,6 +450,49 @@ def test_close_transaction_returns_pending_snapshot_and_closes_on_next_same_symb
             ],
         }
     ]
+
+
+def test_cancel_open_transaction_rejects_transactions_that_are_not_pending_open() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+        open_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        transaction_id = open_response.json()["transactionId"]
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=102.0,
+                    end_timestamp=1_700_000_000_200,
+                )
+            )
+        )
+
+        response = client.post(f"/api/transactions/{transaction_id}/cancel-open")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "transaction_cancel_state_conflict",
+        "message": "Transaction open cannot be canceled from its current state.",
+    }
 
 
 def test_close_transaction_rejects_unknown_transaction_id() -> None:

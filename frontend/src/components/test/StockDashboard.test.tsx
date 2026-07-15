@@ -31,6 +31,19 @@ const topLosers: StockCardModel[] = [
 
 const mockTransactions: TransactionCardModel[] = [
   {
+    transactionId: 'tx-pending',
+    symbol: 'MSFT',
+    positionType: 'LONG',
+    status: 'PENDING_OPEN',
+    submittedAt: 1784054638400,
+    openedAt: null,
+    closedAt: null,
+    entryPrice: null,
+    exitPrice: null,
+    profitLoss: null,
+    points: [{ timestamp: 1784054638000, close: 303 }],
+  },
+  {
     transactionId: 'tx-open',
     symbol: 'AAPL',
     positionType: 'LONG',
@@ -47,6 +60,7 @@ const mockTransactions: TransactionCardModel[] = [
 
 const openTransaction = vi.fn()
 const closeTransaction = vi.fn()
+const cancelOpenTransaction = vi.fn()
 
 vi.mock('../../live/useDashboardFeed', () => ({
   useDashboardFeed: () => ({
@@ -57,6 +71,7 @@ vi.mock('../../live/useDashboardFeed', () => ({
     updatedAt: 1784054639000,
     openTransaction,
     closeTransaction,
+    cancelOpenTransaction,
   }),
 }))
 
@@ -64,6 +79,7 @@ describe('StockDashboard', () => {
   beforeEach(() => {
     openTransaction.mockClear()
     closeTransaction.mockClear()
+    cancelOpenTransaction.mockClear()
   })
 
   it('renders live sections from the feed hook', () => {
@@ -85,13 +101,15 @@ describe('StockDashboard', () => {
     expect(screen.getByText(/Updated: 2026-07-14 18:43:59 UTC/)).toBeInTheDocument()
   })
 
-  it('calls open and close transaction actions from buttons', () => {
+  it('calls open close and cancel transaction actions from buttons', () => {
     render(<StockDashboard />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Buy AAPL' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sell AAPL' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel MSFT' }))
 
     expect(openTransaction).toHaveBeenCalledWith('AAPL', 'LONG')
     expect(closeTransaction).toHaveBeenCalledWith('tx-open')
+    expect(cancelOpenTransaction).toHaveBeenCalledWith('tx-pending')
   })
 })

@@ -89,6 +89,32 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+  /api/transactions/{transactionId}/cancel-open:
+    post:
+      operationId: cancelOpenTransaction
+      tags:
+        - Transactions
+      summary: Cancel a pending transaction open command
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      responses:
+        '202':
+          description: Cancel command accepted; transaction removal will arrive via WebSocket snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionCommandAccepted'
+              examples:
+                accepted:
+                  value:
+                    transactionId: tx_01J0EXAMPLE
+                    status: CANCELED
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 components:
   parameters:
     TransactionId:
@@ -125,6 +151,10 @@ components:
               value:
                 code: transaction_state_conflict
                 message: Transaction cannot be closed from its current state.
+            cancelStateConflict:
+              value:
+                code: transaction_cancel_state_conflict
+                message: Transaction open cannot be canceled from its current state.
     UnprocessableEntity:
       description: Command cannot be queued because required live pricing state is unavailable
       content:
@@ -169,6 +199,7 @@ components:
       enum:
         - PENDING_OPEN
         - PENDING_CLOSE
+        - CANCELED
     TransactionCommandAccepted:
       type: object
       required:

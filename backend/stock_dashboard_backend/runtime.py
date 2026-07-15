@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -180,25 +181,42 @@ class Runtime:
         return accepted
 
     async def close_transaction(self, transaction_id: str) -> dict[str, str]:
-        try:
-            accepted = self.market_state.close_transaction(
-                transaction_id,
-                int(time.time() * 1000),
-            )
-        except TransactionCommandRejected as error:
-            logger.warning(
+        return await self._run_transaction_command(
+            command=lambda submitted_at: self.market_state.close_transaction(transaction_id, submitted_at),
+            rejected_log=(
                 "event=transaction_close outcome=rejected transactionId=%s reason=%s errorCode=%s",
                 transaction_id,
-                error.code,
-                error.code,
-            )
+            ),
+            accepted_log=(
+                "event=transaction_close outcome=accepted transactionId=%s status=%s",
+            ),
+        )
+
+    async def cancel_open_transaction(self, transaction_id: str) -> dict[str, str]:
+        return await self._run_transaction_command(
+            command=lambda submitted_at: self.market_state.cancel_open_transaction(transaction_id, submitted_at),
+            rejected_log=(
+                "event=transaction_open_cancel outcome=rejected transactionId=%s reason=%s errorCode=%s",
+                transaction_id,
+            ),
+            accepted_log=(
+                "event=transaction_open_cancel outcome=accepted transactionId=%s status=%s",
+            ),
+        )
+
+    async def _run_transaction_command(
+        self,
+        command: Callable[[int], dict[str, str]],
+        rejected_log: tuple[str, str],
+        accepted_log: tuple[str],
+    ) -> dict[str, str]:
+        try:
+            accepted = command(int(time.time() * 1000))
+        except TransactionCommandRejected as error:
+            logger.warning(rejected_log[0], rejected_log[1], error.code, error.code)
             raise
 
-        logger.info(
-            "event=transaction_close outcome=accepted transactionId=%s status=%s",
-            accepted["transactionId"],
-            accepted["status"],
-        )
+        logger.info(accepted_log[0], accepted["transactionId"], accepted["status"])
         await self.publisher.broadcast(self.market_state.snapshot())
         return accepted
 

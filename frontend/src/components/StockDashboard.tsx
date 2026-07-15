@@ -24,8 +24,20 @@ function formatUpdatedAt(updatedAt: number | null): string {
 }
 
 export function StockDashboard() {
-  const { topGainers, topLosers, transactions, status, updatedAt, openTransaction, closeTransaction } =
-    useDashboardFeed()
+  const {
+    topGainers,
+    topLosers,
+    transactions,
+    status,
+    updatedAt,
+    openTransaction,
+    closeTransaction,
+    cancelOpenTransaction,
+  } = useDashboardFeed()
+  const stockSections = [
+    { key: 'gainer', title: 'Top Gainers', cards: topGainers },
+    { key: 'loser', title: 'Top Losers', cards: topLosers },
+  ]
 
   return (
     <main className="dashboard-page">
@@ -36,33 +48,21 @@ export function StockDashboard() {
       <p className="dashboard-subtitle">Live watchlist snapshots from the backend WebSocket.</p>
       <p className="dashboard-meta">Updated: {formatUpdatedAt(updatedAt)}</p>
 
-      <section className="transactions-section">
-        <h2 className="transactions-title">Top Gainers</h2>
-        <div className="stock-grid">
-          {topGainers.map((card) => (
-            <StockCard
-              key={`gainer-${card.symbol}`}
-              card={card}
-              onBuy={() => openTransaction(card.symbol, 'LONG')}
-              onShort={() => openTransaction(card.symbol, 'SHORT')}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="transactions-section">
-        <h2 className="transactions-title">Top Losers</h2>
-        <div className="stock-grid">
-          {topLosers.map((card) => (
-            <StockCard
-              key={`loser-${card.symbol}`}
-              card={card}
-              onBuy={() => openTransaction(card.symbol, 'LONG')}
-              onShort={() => openTransaction(card.symbol, 'SHORT')}
-            />
-          ))}
-        </div>
-      </section>
+      {stockSections.map((section) => (
+        <section key={section.key} className="transactions-section">
+          <h2 className="transactions-title">{section.title}</h2>
+          <div className="stock-grid">
+            {section.cards.map((card) => (
+              <StockCard
+                key={`${section.key}-${card.symbol}`}
+                card={card}
+                onBuy={() => openTransaction(card.symbol, 'LONG')}
+                onShort={() => openTransaction(card.symbol, 'SHORT')}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
 
       <section className="transactions-section">
         <h2 className="transactions-title">Transactions</h2>
@@ -75,6 +75,7 @@ export function StockDashboard() {
                 key={transaction.transactionId}
                 transaction={transaction}
                 onClose={closeTransaction}
+                onCancelOpen={cancelOpenTransaction}
               />
             ))
           )}

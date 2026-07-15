@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { closeTransaction, openTransaction } from '../transactionsApi.ts'
+import { cancelOpenTransaction, closeTransaction, openTransaction } from '../transactionsApi.ts'
 
 describe('transactionsApi', () => {
   const fetchMock = vi.fn()
@@ -60,6 +60,25 @@ describe('transactionsApi', () => {
 
     await expect(closeTransaction('tx-missing')).rejects.toThrow(
       'Transaction API request failed with status 404',
+    )
+  })
+
+  it('cancels a pending-open transaction via POST and returns the parsed response', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ transactionId: 'tx-cancel' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    const result = await cancelOpenTransaction('tx-cancel')
+
+    expect(result).toEqual({ transactionId: 'tx-cancel' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/api/transactions/tx-cancel/cancel-open',
+      {
+        method: 'POST',
+      },
     )
   })
 })

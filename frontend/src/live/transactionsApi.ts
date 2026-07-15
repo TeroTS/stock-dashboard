@@ -35,3 +35,9 @@ export function closeTransaction(transactionId: string): Promise<TransactionMuta
     method: 'POST',
   })
 }
+
+export function cancelOpenTransaction(transactionId: string): Promise<TransactionMutationResult> {
+  return request<TransactionMutationResult>(`${API_BASE_URL}/api/transactions/${transactionId}/cancel-open`, {
+    method: 'POST',
+  })
+}

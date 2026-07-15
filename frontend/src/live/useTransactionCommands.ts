@@ -1,29 +1,41 @@
 // Hook for transaction commands. Snapshot updates remain the authoritative read-model source.
 import { useCallback } from 'react'
 import type { PositionType } from '../types'
-import { closeTransaction as closeTransactionApi, openTransaction as openTransactionApi } from './transactionsApi'
+import {
+  cancelOpenTransaction as cancelOpenTransactionApi,
+  closeTransaction as closeTransactionApi,
+  openTransaction as openTransactionApi,
+} from './transactionsApi'
 
 export interface TransactionCommands {
   openTransaction: (symbol: string, positionType: PositionType) => Promise<void>
   closeTransaction: (transactionId: string) => Promise<void>
+  cancelOpenTransaction: (transactionId: string) => Promise<void>
 }
 
 export function useTransactionCommands(): TransactionCommands {
-  const openTransaction = useCallback(async (symbol: string, positionType: PositionType): Promise<void> => {
+  const runCommand = useCallback(async (command: () => Promise<unknown>): Promise<void> => {
     try {
-      await openTransactionApi({ symbol, positionType })
+      await command()
     } catch {
       // The websocket snapshot remains the authoritative state source after command failures.
     }
   }, [])
+
+  const openTransaction = useCallback(
+    async (symbol: string, positionType: PositionType): Promise<void> => {
+      await runCommand(() => openTransactionApi({ symbol, positionType }))
+    },
+    [runCommand],
+  )
 
   const closeTransaction = useCallback(async (transactionId: string): Promise<void> => {
-    try {
-      await closeTransactionApi(transactionId)
-    } catch {
-      // The websocket snapshot remains the authoritative state source after command failures.
-    }
-  }, [])
+    await runCommand(() => closeTransactionApi(transactionId))
+  }, [runCommand])
 
-  return { openTransaction, closeTransaction }
+  const cancelOpenTransaction = useCallback(async (transactionId: string): Promise<void> => {
+    await runCommand(() => cancelOpenTransactionApi(transactionId))
+  }, [runCommand])
+
+  return { openTransaction, closeTransaction, cancelOpenTransaction }
 }

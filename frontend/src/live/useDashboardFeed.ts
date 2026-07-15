@@ -20,6 +20,7 @@ interface UseDashboardFeedResult {
   updatedAt: number | null
   openTransaction: (symbol: string, positionType: PositionType) => Promise<void>
   closeTransaction: (transactionId: string) => Promise<void>
+  cancelOpenTransaction: (transactionId: string) => Promise<void>
 }
 
 export function useDashboardFeed(options: UseDashboardFeedOptions = {}): UseDashboardFeedResult {
@@ -79,7 +80,7 @@ export function useDashboardFeed(options: UseDashboardFeedOptions = {}): UseDash
     }
   }, [callbacks, clientFactory])
 
-  const { openTransaction, closeTransaction } = useTransactionCommands()
+  const { openTransaction, closeTransaction, cancelOpenTransaction } = useTransactionCommands()
 
   return {
     topGainers,
@@ -89,5 +90,6 @@ export function useDashboardFeed(options: UseDashboardFeedOptions = {}): UseDash
     updatedAt,
     openTransaction,
     closeTransaction,
+    cancelOpenTransaction,
   }
 }

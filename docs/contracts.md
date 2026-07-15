@@ -14,7 +14,7 @@ Lock the external contracts for the Python backend rewrite before implementation
 - Kind: Plain WebSocket JSON message stream
 - Producers / Owners: Python FastAPI backend snapshot publisher
 - Consumers: React dashboard frontend
-- Trigger / Direction: Backend pushes one full snapshot to each connected client immediately after any accepted watched-symbol update and immediately after accepted transaction command submission
+- Trigger / Direction: Backend pushes one full snapshot to each connected client immediately after any accepted watched-symbol update and immediately after accepted transaction command submission, including pending-open cancellation
 - Payload / Shape:
   - Message shape:
     - `updatedAt`: integer, Unix epoch milliseconds for the snapshot generation time
@@ -96,6 +96,7 @@ Lock the external contracts for the Python backend rewrite before implementation
   - `points` arrays are ordered oldest to newest.
   - New price points are appended only when `close` changes; otherwise the last point is updated in place.
   - Symbols with `PENDING_OPEN`, `OPEN`, or `PENDING_CLOSE` transactions are excluded from stock-card arrays.
+  - Canceling a `PENDING_OPEN` transaction removes it from `transactions` on the next snapshot and returns its symbol to stock-card arrays immediately.
   - Closed transaction snapshots keep their final frozen `points` history.
 - Visibility / Security:
   - No auth contract is defined in v1.

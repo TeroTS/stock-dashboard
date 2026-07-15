@@ -91,17 +91,20 @@
 .transactions-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  grid-auto-rows: minmax(320px, 1fr);
+  gap: 16px;
 }
 
 .transaction-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px;
+  min-height: 0;
+  height: 100%;
+  padding: 12px;
   border: 1px solid #1f2937;
   border-radius: 10px;
-  background: #0f172a;
+  background: #111827;
 }
 
 .transaction-card-header {
@@ -226,6 +229,19 @@
   stroke: #38bdf8;
   stroke-linecap: round;
   stroke-width: 1;
+}
+
+.price-chart-marker-dash {
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.price-chart-marker-entry {
+  stroke: #22c55e;
+}
+
+.price-chart-marker-exit {
+  stroke: #ef4444;
 }
 
 .stock-card {
