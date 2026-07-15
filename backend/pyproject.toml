@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stock-dashboard-backend"
+version = "0.1.0"
+description = "Python backend for the stock dashboard"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116,<0.117",
+  "uvicorn>=0.35,<0.36",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<0.29",
+  "pytest>=8.4,<8.5",
+  "pytest-cov>=6.2,<6.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stock_dashboard_backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=stock_dashboard_backend --cov-report=term-missing --cov-fail-under=80"
+filterwarnings = [
+  "ignore:.*iscoroutinefunction.*:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["stock_dashboard_backend"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
