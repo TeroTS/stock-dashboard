@@ -11,6 +11,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from stock_dashboard_backend.app import Settings, create_app
+from stock_dashboard_backend.market_state import AggregateUpdate
 from stock_dashboard_backend.runtime import Runtime
 
 
@@ -114,6 +115,14 @@ def test_health_returns_ok_status() -> None:
     assert response.json() == {"status": "ok"}
 
 
+class ManualRuntime(Runtime):
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+
 class ClosingRuntime:
     def __init__(self, settings: Settings) -> None:
         self.disconnected = False
@@ -188,4 +197,111 @@ def test_massive_mode_streams_provider_updates_to_dashboard_websocket() -> None:
             }
         ],
         "transactions": [],
+    }
+
+
+def test_open_transaction_returns_pending_snapshot_and_hides_symbol_from_stock_grids() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+
+        with client.websocket_connect("/ws") as websocket:
+            initial_snapshot = websocket.receive_json()
+            response = client.post(
+                "/api/transactions",
+                json={"symbol": "AAPL", "positionType": "LONG"},
+            )
+            pending_snapshot = websocket.receive_json()
+
+    accepted = response.json()
+    pending_transaction = pending_snapshot["transactions"][0]
+
+    assert initial_snapshot["topGainers"][0]["symbol"] == "AAPL"
+    assert response.status_code == 202
+    assert accepted["transactionId"].startswith("tx-")
+    assert accepted["status"] == "PENDING_OPEN"
+    assert pending_snapshot["topGainers"] == []
+    assert pending_snapshot["topLosers"] == []
+    assert pending_snapshot["updatedAt"] == pending_transaction["submittedAt"]
+    assert pending_transaction == {
+        "transactionId": accepted["transactionId"],
+        "symbol": "AAPL",
+        "positionType": "LONG",
+        "status": "PENDING_OPEN",
+        "submittedAt": pending_transaction["submittedAt"],
+        "openedAt": None,
+        "closedAt": None,
+        "entryPrice": None,
+        "exitPrice": None,
+        "profitLoss": None,
+        "points": [{"timestamp": 1_700_000_000_100, "close": 101.5}],
+    }
+
+
+def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
+    app = create_app(
+        Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+        runtime_factory=ManualRuntime,
+    )
+
+    with TestClient(app) as client:
+        runtime: Runtime = client.app.state.runtime
+        asyncio.run(
+            runtime.apply_update(
+                AggregateUpdate(
+                    symbol="AAPL",
+                    official_open_price=100.0,
+                    close=101.5,
+                    end_timestamp=1_700_000_000_100,
+                )
+            )
+        )
+
+        first_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+        second_response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "SHORT"},
+        )
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 409
+    assert second_response.json() == {
+        "code": "symbol_transaction_conflict",
+        "message": "Symbol already has an active or pending transaction.",
+    }
+
+
+def test_open_transaction_rejects_symbols_without_live_state() -> None:
+    with TestClient(
+        create_app(
+            Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+            runtime_factory=ManualRuntime,
+        )
+    ) as client:
+        response = client.post(
+            "/api/transactions",
+            json={"symbol": "AAPL", "positionType": "LONG"},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "code": "latest_price_unavailable",
+        "message": "Latest symbol price is unavailable; command was not queued.",
     }

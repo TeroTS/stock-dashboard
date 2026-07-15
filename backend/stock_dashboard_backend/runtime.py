@@ -4,13 +4,19 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from massive import WebSocketClient
 
-from stock_dashboard_backend.market_state import AggregateUpdate, MarketState
+from stock_dashboard_backend.market_state import (
+    AggregateUpdate,
+    MarketState,
+    PositionType,
+    TransactionCommandRejected,
+)
 from stock_dashboard_backend.massive_feed import (
     aggregate_update_from_message,
     create_massive_client,
@@ -123,6 +129,36 @@ class Runtime:
             return
 
         await self.publisher.broadcast(self.market_state.snapshot())
+
+    async def open_transaction(
+        self,
+        symbol: str,
+        position_type: PositionType,
+    ) -> dict[str, str]:
+        try:
+            accepted = self.market_state.open_transaction(
+                symbol,
+                position_type,
+                int(time.time() * 1000),
+            )
+        except TransactionCommandRejected as error:
+            logger.warning(
+                "event=transaction_open outcome=rejected symbol=%s reason=%s errorCode=%s",
+                symbol,
+                error.message,
+                error.code,
+            )
+            raise
+
+        logger.info(
+            "event=transaction_open outcome=accepted transactionId=%s symbol=%s positionType=%s status=%s",
+            accepted["transactionId"],
+            symbol,
+            position_type,
+            accepted["status"],
+        )
+        await self.publisher.broadcast(self.market_state.snapshot())
+        return accepted
 
     async def _handle_massive_messages(self, messages: list[Any]) -> None:
         for message in messages:

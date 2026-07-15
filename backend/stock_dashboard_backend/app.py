@@ -3,10 +3,18 @@
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 
+from stock_dashboard_backend.market_state import PositionType, TransactionCommandRejected
 from stock_dashboard_backend.runtime import Runtime, Settings
+
+
+class OpenTransactionRequest(BaseModel):
+    symbol: str
+    positionType: PositionType
 
 
 # Build one app instance with a lifecycle-managed runtime so tests can inject custom settings.
@@ -27,9 +35,27 @@ def create_app(
 
     app = FastAPI(lifespan=lifespan)
 
+    @app.exception_handler(TransactionCommandRejected)
+    async def handle_transaction_command_rejected(
+        _request: Request,
+        error: TransactionCommandRejected,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"code": error.code, "message": error.message},
+        )
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/api/transactions", status_code=202)
+    async def open_transaction(
+        command: OpenTransactionRequest,
+        request: Request,
+    ) -> dict[str, str]:
+        runtime: Runtime = request.app.state.runtime
+        return await runtime.open_transaction(command.symbol, command.positionType)
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

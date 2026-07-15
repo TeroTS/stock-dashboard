@@ -2,7 +2,11 @@
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+
+PositionType = Literal["LONG", "SHORT"]
+TransactionStatus = Literal["PENDING_OPEN", "OPEN", "PENDING_CLOSE", "CLOSED"]
+ACTIVE_TRANSACTION_STATUSES = {"PENDING_OPEN", "OPEN", "PENDING_CLOSE"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -46,12 +50,55 @@ class SymbolState:
         }
 
 
+@dataclass(slots=True)
+class TransactionState:
+    """In-memory read model for one transaction shown on the dashboard."""
+
+    transaction_id: str
+    symbol: str
+    position_type: PositionType
+    status: TransactionStatus
+    submitted_at: int
+    opened_at: int | None
+    closed_at: int | None
+    entry_price: float | None
+    exit_price: float | None
+    profit_loss: float | None
+    points: list[LinePoint] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "transactionId": self.transaction_id,
+            "symbol": self.symbol,
+            "positionType": self.position_type,
+            "status": self.status,
+            "submittedAt": self.submitted_at,
+            "openedAt": self.opened_at,
+            "closedAt": self.closed_at,
+            "entryPrice": self.entry_price,
+            "exitPrice": self.exit_price,
+            "profitLoss": self.profit_loss,
+            "points": [point.to_payload() for point in self.points],
+        }
+
+
+@dataclass(slots=True, frozen=True)
+class TransactionCommandRejected(Exception):
+    """Command rejection mapped directly to the HTTP error contract."""
+
+    status_code: int
+    code: str
+    message: str
+
+
 class MarketState:
-    """Owns watched-symbol state mutation and full snapshot assembly."""
+    """Owns watched-symbol state mutation, transaction state, and full snapshot assembly."""
 
     def __init__(self) -> None:
         self.symbols: dict[str, SymbolState] = {}
+        self.transactions: list[TransactionState] = []
         self.updated_at = int(time.time() * 1000)
+        self._next_transaction_id = 1
 
     # Keep symbol state and point history aligned with the websocket snapshot contract.
     def apply_update(self, settings: Any, update: AggregateUpdate) -> bool:
@@ -82,9 +129,59 @@ class MarketState:
         self.updated_at = update.end_timestamp
         return True
 
+    # Reject opens without live state and hide symbols once they already have a live transaction.
+    def open_transaction(
+        self,
+        symbol: str,
+        position_type: PositionType,
+        submitted_at: int,
+    ) -> dict[str, str]:
+        symbol_state = self.symbols.get(symbol)
+        if symbol_state is None:
+            raise TransactionCommandRejected(
+                status_code=422,
+                code="latest_price_unavailable",
+                message="Latest symbol price is unavailable; command was not queued.",
+            )
+
+        if self._has_active_transaction(symbol):
+            raise TransactionCommandRejected(
+                status_code=409,
+                code="symbol_transaction_conflict",
+                message="Symbol already has an active or pending transaction.",
+            )
+
+        transaction_id = f"tx-{self._next_transaction_id:06d}"
+        self._next_transaction_id += 1
+        self.transactions.append(
+            TransactionState(
+                transaction_id=transaction_id,
+                symbol=symbol,
+                position_type=position_type,
+                status="PENDING_OPEN",
+                submitted_at=submitted_at,
+                opened_at=None,
+                closed_at=None,
+                entry_price=None,
+                exit_price=None,
+                profit_loss=None,
+                points=list(symbol_state.points),
+            )
+        )
+        self.updated_at = submitted_at
+        return {"transactionId": transaction_id, "status": "PENDING_OPEN"}
+
     # Each websocket message is a full replacement snapshot for the frontend read model.
     def snapshot(self) -> dict[str, Any]:
-        ranked = sorted(self.symbols.values(), key=lambda symbol: symbol.percent_change)
+        active_symbols = {
+            transaction.symbol
+            for transaction in self.transactions
+            if transaction.status in ACTIVE_TRANSACTION_STATUSES
+        }
+        ranked = sorted(
+            (symbol for symbol in self.symbols.values() if symbol.symbol not in active_symbols),
+            key=lambda symbol: symbol.percent_change,
+        )
         top_losers = ranked[:5]
         top_gainers = reversed(ranked[-5:])
 
@@ -92,5 +189,11 @@ class MarketState:
             "updatedAt": self.updated_at,
             "topGainers": [state.to_payload() for state in top_gainers],
             "topLosers": [state.to_payload() for state in top_losers],
-            "transactions": [],
+            "transactions": [transaction.to_payload() for transaction in self.transactions],
         }
+
+    def _has_active_transaction(self, symbol: str) -> bool:
+        return any(
+            transaction.symbol == symbol and transaction.status in ACTIVE_TRANSACTION_STATUSES
+            for transaction in self.transactions
+        )
