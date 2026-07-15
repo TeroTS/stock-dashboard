@@ -6,8 +6,7 @@ Status: Draft v1
 Rewrite the stock dashboard backend as a simple Python 3.12 + FastAPI service that uses in-memory state, a plain JSON WebSocket feed, and HTTP transaction commands. The product keeps a watchlist-based top 5 gainers / top 5 losers dashboard, replaces candle/range charts with one close-price line per card, and supports pending-next-tick transaction fills. Source: derived from `DECISIONS.md`.
 
 ## Goals and Success Criteria
-- Run locally by default without external credentials by using a mock feed.
-- Run against Massive 1-second aggregates when explicitly enabled.
+- Run against Massive 1-second aggregates with a valid `MASSIVE_API_KEY`.
 - Publish full dashboard snapshots over plain WebSocket whenever watched-symbol state changes.
 - Render top 5 gainers, top 5 losers, and transaction cards from snapshot data only.
 - Support `Buy`, `Short`, `Sell`, and `Cover` flows with visible pending states and next-symbol-update fills.
@@ -46,7 +45,6 @@ Rewrite the stock dashboard backend as a simple Python 3.12 + FastAPI service th
 - Stock card: symbol, percent change, line-series data
 - Transaction: transaction id, symbol, position type, status (`PENDING_OPEN`, `OPEN`, `PENDING_CLOSE`, `CLOSED`), submitted time, open/close fill times, entry price, exit price, realized P/L, inherited line-series data
 - Snapshot: updated time, top gainers, top losers, transactions
-- Feed mode: `mock` or `massive`
 
 ## Core Business Rules
 - Ignore provider updates where `official_open_price` is missing.
@@ -67,19 +65,19 @@ Rewrite the stock dashboard backend as a simple Python 3.12 + FastAPI service th
 
 Story format:
 
-### US-01 Local mock-backed dashboard startup
+### US-01 Massive-backed dashboard startup
 
 **Primary actor:** Developer running the app locally
 
-**Trigger:** The developer starts the frontend and backend with default settings
+**Trigger:** The developer starts the frontend and backend with a valid `MASSIVE_API_KEY`
 
 **Flow:**
 
-1. The backend starts in `mock` mode by default without requiring external credentials.
-2. The mock feed emits one update per second for every watched symbol using `symbol`, `official_open_price`, `close`, and aggregate timestamp.
+1. The backend starts the Massive websocket feed during startup.
+2. The backend subscribes per watched symbol using 1-second aggregate updates.
 3. The backend maintains in-memory watchlist state and exposes a simple health endpoint.
 
-**Visible outcome:** The app starts locally with live-looking watchlist updates and no Massive API key.
+**Visible outcome:** The app starts locally against Massive provider data and begins publishing live snapshots.
 
 ### US-02 Plain WebSocket snapshot stream
 
@@ -165,23 +163,10 @@ Story format:
 
 **Visible outcome:** Invalid repeat actions do not create duplicate positions or corrupt visible state.
 
-### US-08 Massive feed mode for real provider data
-
-**Primary actor:** Developer running the app against live provider data
-
-**Trigger:** The developer enables `FEED_MODE=massive`
-
-**Flow:**
-
-1. The backend starts the Massive websocket feed when `FEED_MODE=massive` and a valid `MASSIVE_API_KEY` are provided.
-2. The backend processes accepted watchlist aggregates using provider `official_open_price`, `close`, and `end_timestamp`.
-3. The same ranking, chart, transaction, and snapshot rules used in mock mode apply in Massive mode.
-
-**Visible outcome:** The same dashboard behavior runs against Massive 1-second aggregates instead of mock data.
 
 ## Story Groups / Likely Delivery Order
 - Foundation
-  - US-01 Local mock-backed dashboard startup
+  - US-01 Massive-backed dashboard startup
   - US-02 Plain WebSocket snapshot stream
 - Live market view
   - US-03 Ranked stock cards with one line chart
@@ -190,8 +175,6 @@ Story format:
   - US-05 Pending open fills on the next symbol update
   - US-06 Pending close fills and freezes the transaction
   - US-07 Transaction rejection and duplicate protection
-- Provider integration
-  - US-08 Massive feed mode for real provider data
 
 ## Assumptions
 - The existing frontend can be updated to the new breaking snapshot and WebSocket contract.

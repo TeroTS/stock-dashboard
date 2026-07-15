@@ -56,7 +56,7 @@ Exemption:
 - Follow the existing folder structure before introducing a new location or file shape.
 - Place UI in `frontend/src/components/`, live feed and API integration in `frontend/src/live/`, shared UI models in `frontend/src/types.ts`, backend code in `backend/stock_dashboard_backend/`, and backend tests in `backend/tests/`.
 - Use accepted terms from `SPEC.md`, `openapi.yaml`, and `docs/contracts.md` at module and API boundaries.
-- Do not invent alternate business synonyms for existing terms such as transaction, snapshot, watchlist symbol, position type, or feed mode.
+- Do not invent alternate business synonyms for existing terms such as transaction, snapshot, watchlist symbol, or position type.
 - Treat broad renames as separate migrations, not incidental cleanup.
 
 ## TypeScript Return Types
@@ -100,7 +100,7 @@ When implementing backend code for a user story from `SPEC.md`:
 - Frontend package manager is pinned in `frontend/package.json`
 - Backend dependencies are locked in `backend/uv.lock` and synced by `./scripts/setup`
 - Default local ports: frontend `5173`, backend `8080`
-- Common env vars: `VITE_WS_URL`, `VITE_API_BASE_URL`, `FEED_MODE`, `MASSIVE_API_KEY`
-- Massive mode: subscribe per watchlist symbol with `A.<SYMBOL>`; do not use `A.*`
+- Common env vars: `VITE_WS_URL`, `VITE_API_BASE_URL`, `MASSIVE_API_KEY`
+- Massive feed: subscribe per watchlist symbol with `A.<SYMBOL>`; do not use `A.*`
 - Ignore provider updates with `official_open_price=None`
 - Never hardcode API keys

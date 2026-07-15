@@ -17,6 +17,7 @@ Backend rewrite inputs:
 Run the app locally with Docker:
 
 ```bash
+export MASSIVE_API_KEY='your-api-key'
 ./scripts/run-local
 ```
 
@@ -40,6 +41,7 @@ Set up a host development environment and verify changes:
 Start both services with Docker Compose:
 
 ```bash
+export MASSIVE_API_KEY='your-api-key'
 ./scripts/run-local
 ```
 
@@ -85,8 +87,7 @@ Frontend env vars:
 - `VITE_API_BASE_URL` (target default `http://localhost:8080`)
 
 Backend env vars:
-- `FEED_MODE=mock|massive`
-- `MASSIVE_API_KEY` for `FEED_MODE=massive`
+- `MASSIVE_API_KEY`
 
 ## Backend environment
 

@@ -7,8 +7,7 @@ The current backend is a Spring Boot + Redis + STOMP service built around rollin
 
 ## Goals and Success Criteria
 - Replace the backend with Python 3.12 + FastAPI.
-- Use Massive 1-second aggregate data in production mode.
-- Support a default mock feed for local development.
+- Use Massive 1-second aggregate data for all backend runtime environments.
 - Keep the dashboard focused on top 5 gainers and top 5 losers from a configured watchlist.
 - Replace candle/range-based chart data with a single close-price line series.
 - Implement transactions in the Python backend, including pending-next-tick fills.
@@ -18,7 +17,7 @@ The current backend is a Spring Boot + Redis + STOMP service built around rollin
 
 ## Primary Roles / Actors
 - Dashboard user viewing live gainers/losers and managing transactions.
-- Developer running the system locally with mock or Massive feed modes.
+- Developer running the system locally with Massive feed access.
 - Massive websocket feed producing symbol aggregates.
 
 ## Non-Goals
@@ -106,15 +105,8 @@ The current backend is a Spring Boot + Redis + STOMP service built around rollin
 ### Operations / Deployment
 - The rewritten backend runs as one FastAPI process.
 - That single process owns feed ingestion, in-memory state, transaction logic, HTTP API, websocket clients, and health endpoint.
-- Feed selection uses `FEED_MODE=mock|massive`.
-- `FEED_MODE` defaults to `mock` for local development.
-- Massive mode requires `MASSIVE_API_KEY`.
-- Mock mode exists now; the backend must not require Massive credentials for normal local development.
-- Mock feed behavior:
-  - emits once per second
-  - covers every watched symbol each cycle
-  - includes `symbol`, `official_open_price`, `close`, and aggregate timestamp
-  - uses a small random walk around open price
+- The backend always uses the Massive websocket feed.
+- `MASSIVE_API_KEY` is required in every environment.
 - Prometheus and Grafana are removed from the runtime topology.
 - Redis is removed from the runtime topology.
 
@@ -156,7 +148,7 @@ The current backend is a Spring Boot + Redis + STOMP service built around rollin
 
 ## Operational / Deployment Constraints
 - Local-first development is required.
-- The default local setup must work without external market credentials by using mock mode.
+- The default local setup requires `MASSIVE_API_KEY`.
 - The runtime architecture must stay simple: one process, in-memory state, no external datastore.
 - The rewritten backend should continue to bind to port `8080` so the frontend can keep its default API/websocket base host.
 

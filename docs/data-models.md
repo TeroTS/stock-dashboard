@@ -21,7 +21,7 @@ Fields:
 | `volume` | integer (`> 0`) | Yes | Trade size merged into current candle bucket |
 
 Producers / Consumers:
-- Producer: market tick source (mock ingest locally or external provider).
+- Producer: Massive market data provider.
 - Consumer: backend tick ingest pipeline.
 
 Versioning / Compatibility Rules:

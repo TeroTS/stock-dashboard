@@ -108,8 +108,7 @@ Lock the external contracts for the Python backend rewrite before implementation
 
 - Kind: Inbound aggregate event consumed by the backend feed/state layer
 - Producers / Owners:
-  - Massive websocket adapter in `massive` mode
-  - Mock feed generator in `mock` mode
+  - Massive websocket adapter
 - Consumers:
   - Backend in-memory market-state and transaction engine
 - Trigger / Direction: One inbound event per watched-symbol update
@@ -139,8 +138,7 @@ Lock the external contracts for the Python backend rewrite before implementation
 - Visibility / Security:
   - Massive credentials are backend-only and are never exposed through the dashboard contracts.
 - Failure / Retry expectations:
-  - Mock mode is the default local fallback when live provider mode is not selected.
-  - Massive-mode reconnect/retry behavior is backend-internal and must preserve the same outbound snapshot contract.
+  - Massive reconnect/retry behavior is backend-internal and must preserve the same outbound snapshot contract.
 
 ## Slice Handoff
 
