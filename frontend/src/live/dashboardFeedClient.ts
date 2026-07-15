@@ -1,11 +1,9 @@
-import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs'
+// Plain browser WebSocket client for full-snapshot dashboard updates.
 import type { DashboardSnapshotDto } from './types'
 
 export interface DashboardFeedCallbacks {
   onSnapshot: (snapshot: DashboardSnapshotDto) => void
-  onConnected?: () => void
   onDisconnected?: () => void
-  onFallback?: () => void
 }
 
 export interface DashboardFeedClient {
@@ -15,7 +13,6 @@ export interface DashboardFeedClient {
 
 export interface DashboardFeedClientOptions {
   wsUrl: string
-  topic: string
 }
 
 export type DashboardFeedClientFactory = (
@@ -23,54 +20,41 @@ export type DashboardFeedClientFactory = (
   options?: Partial<DashboardFeedClientOptions>,
 ) => DashboardFeedClient
 
-const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws/dashboard'
-const DEFAULT_TOPIC = import.meta.env.VITE_WS_TOPIC ?? '/topic/dashboard-snapshots'
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws'
 
-function parseSnapshot(message: IMessage): DashboardSnapshotDto | null {
+// Ignore malformed frames and keep the last good snapshot as the source of truth.
+function parseSnapshot(data: string): DashboardSnapshotDto | null {
   try {
-    return JSON.parse(message.body) as DashboardSnapshotDto
+    return JSON.parse(data) as DashboardSnapshotDto
   } catch {
     return null
   }
 }
 
-export const createDashboardFeedClient: DashboardFeedClientFactory = (
-  callbacks,
-  options = {},
-) => {
-  let subscription: StompSubscription | null = null
-
-  const client = new Client({
-    brokerURL: options.wsUrl ?? DEFAULT_WS_URL,
-    reconnectDelay: 1000,
-    heartbeatIncoming: 10000,
-    heartbeatOutgoing: 10000,
-    debug: () => undefined,
-    onConnect: () => {
-      callbacks.onConnected?.()
-      subscription = client.subscribe(options.topic ?? DEFAULT_TOPIC, (message) => {
-        const snapshot = parseSnapshot(message)
-        if (snapshot) {
-          callbacks.onSnapshot(snapshot)
-        }
-      })
-    },
-    onWebSocketClose: () => {
-      callbacks.onDisconnected?.()
-    },
-    onWebSocketError: () => {
-      callbacks.onDisconnected?.()
-    },
-  })
+export const createDashboardFeedClient: DashboardFeedClientFactory = (callbacks, options = {}) => {
+  let socket: WebSocket | null = null
 
   return {
     connect: () => {
-      client.activate()
+      socket = new WebSocket(options.wsUrl ?? DEFAULT_WS_URL)
+      const handleDisconnect = () => {
+        callbacks.onDisconnected?.()
+      }
+
+      socket.onmessage = (event) => {
+        const snapshot = parseSnapshot(String(event.data))
+        if (!snapshot) {
+          return
+        }
+
+        callbacks.onSnapshot(snapshot)
+      }
+      socket.onclose = handleDisconnect
+      socket.onerror = handleDisconnect
     },
     disconnect: () => {
-      subscription?.unsubscribe()
-      subscription = null
-      client.deactivate()
+      socket?.close()
+      socket = null
     },
   }
 }

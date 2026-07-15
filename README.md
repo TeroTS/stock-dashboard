@@ -14,7 +14,13 @@ Backend rewrite inputs:
 
 ## Quick start
 
-From repository root:
+Run the app locally with Docker:
+
+```bash
+./scripts/run-local
+```
+
+Set up a host development environment and verify changes:
 
 ```bash
 ./scripts/setup
@@ -31,17 +37,22 @@ From repository root:
 
 ## Run locally
 
-Backend:
+Start both services with Docker Compose:
 
 ```bash
-uv run --no-project uvicorn stock_dashboard_backend.app:app --reload --port 8080
+./scripts/run-local
 ```
 
-Frontend:
+Stop them with:
 
 ```bash
-pnpm --dir frontend dev
+docker compose down --remove-orphans
 ```
+
+App URLs:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8080`
+- WebSocket: `ws://localhost:8080/ws`
 
 ## Verification commands
 

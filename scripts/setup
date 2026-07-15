@@ -90,7 +90,8 @@ echo "[setup] syncing backend Python dependencies with uv lock"
 (
   cd "${BACKEND_DIR}"
   uv export --frozen --extra dev > "${BACKEND_EXPORT_FILE##${BACKEND_DIR}/}"
-  uv pip sync --python "${PYTHON_PATH}" "${BACKEND_EXPORT_FILE##${BACKEND_DIR}/}"
+  UV_BREAK_SYSTEM_PACKAGES=1 uv pip sync --python "${PYTHON_PATH}" "${BACKEND_EXPORT_FILE##${BACKEND_DIR}/}"
+  UV_BREAK_SYSTEM_PACKAGES=1 uv pip install --python "${PYTHON_PATH}" --no-deps -e .
 )
 
 echo "[setup] setup completed"

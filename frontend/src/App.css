@@ -162,13 +162,15 @@
   border: 1px solid #ef4444;
 }
 
-.transaction-values {
+.transaction-values,
+.stock-values {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.transaction-line {
+.transaction-line,
+.stock-line {
   margin: 0;
   color: #e2e8f0;
   font-family: 'JetBrains Mono', monospace;

@@ -1,3 +1,4 @@
+// Thin HTTP client for transaction commands. Snapshot updates stay on the websocket path.
 import type { PositionType } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
@@ -11,6 +12,7 @@ interface TransactionMutationResult {
   transactionId: string
 }
 
+// Keep command failures loud so callers can fall back to the next authoritative websocket snapshot.
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init)
   if (!response.ok) {

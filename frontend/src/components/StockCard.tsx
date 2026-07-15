@@ -1,6 +1,4 @@
-import { CandlestickChart } from './CandlestickChart'
 import type { StockCardModel } from '../types'
-import { useState } from 'react'
 
 interface StockCardProps {
   card: StockCardModel
@@ -9,10 +7,7 @@ interface StockCardProps {
 }
 
 function formatPercentChange(value: number): string {
-  if (value > 0) {
-    return `+${value.toFixed(2)}%`
-  }
-  return `${value.toFixed(2)}%`
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
 function percentClassName(value: number): string {
@@ -26,16 +21,10 @@ function percentClassName(value: number): string {
 }
 
 export function StockCard({ card, onBuy, onShort }: StockCardProps) {
-  const [selectedRange, setSelectedRange] = useState<string | null>(null)
-
-  const activeRange =
-    selectedRange !== null && card.timeRanges.includes(selectedRange) ? selectedRange : card.activeRange
-  const candles = card.candlesByRange[activeRange] ?? []
-  const yAxisLabels = card.yAxisLabelsByRange[activeRange] ?? []
-  const xAxisLabels = card.xAxisLabelsByRange[activeRange] ?? []
+  const latestPoint = card.points.at(-1)
 
   return (
-    <article className="stock-card" data-testid={`stock-${card.cardId}`}>
+    <article className="stock-card" data-testid={`stock-${card.symbol}`}>
       <header className="stock-card-header">
         <div className="stock-symbol-group">
           <span className="stock-symbol">{card.symbol}</span>
@@ -43,49 +32,31 @@ export function StockCard({ card, onBuy, onShort }: StockCardProps) {
             {formatPercentChange(card.percentChange)}
           </span>
         </div>
-
-        <div className="range-list">
-          {card.timeRanges.map((range) => (
-            <button
-              key={`${card.cardId}-${range}`}
-              className={`range-chip ${range === activeRange ? 'range-chip-active' : ''}`}
-              type="button"
-              onClick={() => setSelectedRange(range)}
-            >
-              {range}
-            </button>
-          ))}
-        </div>
       </header>
 
-      <section className="chart-area">
-        <div className="chart-main">
-          <div className="y-axis">
-            {yAxisLabels.map((label) => (
-              <span key={`${card.cardId}-${label}`} className="axis-text">
-                {label}
-              </span>
-            ))}
-          </div>
-
-          <CandlestickChart candles={candles} gridLines={card.gridLines} />
-        </div>
-
-        <div className="x-axis">
-          {xAxisLabels.map((label) => (
-            <span key={`${card.cardId}-${activeRange}-${label}`} className="axis-text">
-              {label}
-            </span>
-          ))}
-        </div>
+      <section className="stock-values">
+        <p className="stock-line">Close: {card.close.toFixed(2)}</p>
+        <p className="stock-line">Open: {card.officialOpenPrice.toFixed(2)}</p>
+        <p className="stock-line">Points: {card.points.length}</p>
+        {latestPoint ? <p className="stock-line">Latest tick: {latestPoint.close.toFixed(2)}</p> : null}
       </section>
 
       <footer className="card-footer">
-        <button className="trade-button trade-button-buy" type="button" onClick={onBuy}>
-          {card.buyLabel}
+        <button
+          aria-label={`Buy ${card.symbol}`}
+          className="trade-button trade-button-buy"
+          type="button"
+          onClick={onBuy}
+        >
+          Buy
         </button>
-        <button className="trade-button trade-button-short" type="button" onClick={onShort}>
-          {card.shortLabel}
+        <button
+          aria-label={`Short ${card.symbol}`}
+          className="trade-button trade-button-short"
+          type="button"
+          onClick={onShort}
+        >
+          Short
         </button>
       </footer>
     </article>

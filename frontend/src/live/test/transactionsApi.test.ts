@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { closeTransaction, openTransaction } from './transactionsApi'
+import { closeTransaction, openTransaction } from '../transactionsApi.ts'
 
 describe('transactionsApi', () => {
   const fetchMock = vi.fn()

@@ -1,56 +1,29 @@
-export interface PlotShape {
-  x: number
-  y: number
-  width: number
-  height: number
-  fill: string
-}
-
-export interface CandleSpec {
-  index: number
-  body: PlotShape
-  wick: PlotShape
-}
-
-export interface GridLineSpec {
-  x: number
-  y: number
-  width: number
-  height: number
+export interface LinePoint {
+  timestamp: number
+  close: number
 }
 
 export interface StockCardModel {
-  cardId: string
   symbol: string
+  close: number
+  officialOpenPrice: number
   percentChange: number
-  timeRanges: string[]
-  activeRange: string
-  yAxisLabelsByRange: Record<string, string[]>
-  xAxisLabelsByRange: Record<string, string[]>
-  gridLines: GridLineSpec[]
-  candlesByRange: Record<string, CandleSpec[]>
-  buyLabel: string
-  shortLabel: string
+  points: LinePoint[]
 }
 
 export type PositionType = 'LONG' | 'SHORT'
-export type TransactionStatus = 'OPEN' | 'CLOSED'
+export type TransactionStatus = 'PENDING_OPEN' | 'OPEN' | 'PENDING_CLOSE' | 'CLOSED'
 
 export interface TransactionCardModel {
   transactionId: string
   symbol: string
-  timeRanges: string[]
-  activeRange: string
-  yAxisLabelsByRange: Record<string, string[]>
-  xAxisLabelsByRange: Record<string, string[]>
-  gridLines: GridLineSpec[]
-  candlesByRange: Record<string, CandleSpec[]>
   positionType: PositionType
   status: TransactionStatus
-  openTimestamp: string
-  closeTimestamp: string | null
-  entryPrice: number
+  submittedAt: number
+  openedAt: number | null
+  closedAt: number | null
+  entryPrice: number | null
   exitPrice: number | null
   profitLoss: number | null
-  closeActionLabel: string | null
+  points: LinePoint[]
 }

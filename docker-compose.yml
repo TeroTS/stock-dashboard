@@ -1,76 +1,33 @@
 services:
-  redis:
-    image: redis:7.2-alpine
-    container_name: stock-dashboard-redis
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: stock-dashboard-backend
+    command: --host 0.0.0.0 --port 8080 --reload
     environment:
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: "6379"
-      MARKET_SESSION_OPEN: "00:00"
-      MARKET_SESSION_CLOSE: "23:59"
-    depends_on:
-      redis:
-        condition: service_healthy
+      FEED_MODE: ${FEED_MODE:-mock}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
     ports:
       - "8080:8080"
-    restart: unless-stopped
+    volumes:
+      - ./backend:/app
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: stock-dashboard-frontend
+    command: pnpm dev --host 0.0.0.0 --port 5173
     environment:
-      VITE_WS_URL: ws://localhost:8080/ws/dashboard
-      VITE_WS_TOPIC: /topic/dashboard-snapshots
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_WS_URL: ws://localhost:8080/ws
+      VITE_API_BASE_URL: http://localhost:8080
     depends_on:
       - backend
     ports:
       - "5173:5173"
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:v3.3.1
-    container_name: stock-dashboard-prometheus
-    profiles: ["observability"]
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --web.enable-lifecycle
     volumes:
-      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    depends_on:
-      - backend
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
 
-  grafana:
-    image: grafana/grafana:11.6.0
-    container_name: stock-dashboard-grafana
-    profiles: ["observability"]
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    depends_on:
-      - prometheus
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
+volumes:
+  frontend_node_modules:

@@ -9,7 +9,7 @@ description = "Python backend for the stock dashboard"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116,<0.117",
-  "uvicorn>=0.35,<0.36",
+  "uvicorn[standard]>=0.35,<0.36",
 ]
 
 [project.optional-dependencies]
