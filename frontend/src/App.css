@@ -49,6 +49,12 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+.dashboard-status-connected {
+  color: #dbeafe;
+  background: #1d4ed8;
+  border: 1px solid #60a5fa;
+}
+
 .dashboard-status-live {
   color: #dcfce7;
   background: #166534;

@@ -2,7 +2,11 @@ import { useDashboardFeed } from '../live/useDashboardFeed'
 import { StockCard } from './StockCard'
 import { TransactionCard } from './TransactionCard'
 
-function statusLabel(status: 'live' | 'reconnecting' | 'fallback'): string {
+function statusLabel(status: 'connected' | 'live' | 'reconnecting' | 'fallback'): string {
+  if (status === 'connected') {
+    return 'Connected'
+  }
+
   if (status === 'live') {
     return 'Live'
   }
@@ -17,7 +21,7 @@ function statusLabel(status: 'live' | 'reconnecting' | 'fallback'): string {
 // Show a stable UTC timestamp because snapshots already arrive as backend-owned epoch milliseconds.
 function formatUpdatedAt(updatedAt: number | null): string {
   if (updatedAt === null) {
-    return 'Waiting for live feed'
+    return 'Waiting for eligible market data'
   }
 
   return new Date(updatedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC')

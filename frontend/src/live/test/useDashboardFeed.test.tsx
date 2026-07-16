@@ -44,8 +44,11 @@ const snapshot: DashboardSnapshotDto = {
 
 function createFakeClientFactory() {
   let handlers: Parameters<DashboardFeedClientFactory>[0] | null = null
+  let connectCalls = 0
   const client: DashboardFeedClient = {
-    connect: () => undefined,
+    connect: () => {
+      connectCalls += 1
+    },
     disconnect: () => undefined,
   }
 
@@ -56,6 +59,7 @@ function createFakeClientFactory() {
 
   return {
     factory,
+    getConnectCalls: () => connectCalls,
     getHandlers: () => handlers,
   }
 }
@@ -66,6 +70,21 @@ describe('useDashboardFeed', () => {
     const { result } = renderHook(() => useDashboardFeed({ clientFactory: fake.factory }))
 
     expect(result.current.status).toBe('fallback')
+    expect(result.current.topGainers).toEqual([])
+    expect(result.current.topLosers).toEqual([])
+    expect(result.current.transactions).toEqual([])
+  })
+
+  it('shows connected before the first eligible snapshot arrives', () => {
+    const fake = createFakeClientFactory()
+    const { result } = renderHook(() => useDashboardFeed({ clientFactory: fake.factory }))
+
+    act(() => {
+      fake.getHandlers()?.onConnected?.()
+    })
+
+    expect(result.current.status).toBe('connected')
+    expect(result.current.updatedAt).toBeNull()
     expect(result.current.topGainers).toEqual([])
     expect(result.current.topLosers).toEqual([])
     expect(result.current.transactions).toEqual([])
@@ -99,9 +118,35 @@ describe('useDashboardFeed', () => {
     expect(result.current.status).toBe('reconnecting')
 
     act(() => {
-      vi.runOnlyPendingTimers()
+      vi.advanceTimersByTime(10)
     })
     expect(result.current.status).toBe('fallback')
+
+    vi.useRealTimers()
+  })
+
+  it('retries the websocket connection after disconnect and recovers on reconnect', () => {
+    vi.useFakeTimers()
+    const fake = createFakeClientFactory()
+    const { result } = renderHook(() => useDashboardFeed({ clientFactory: fake.factory, fallbackAfterMs: 10 }))
+
+    expect(fake.getConnectCalls()).toBe(1)
+
+    act(() => {
+      fake.getHandlers()?.onDisconnected?.()
+    })
+    expect(result.current.status).toBe('reconnecting')
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+    expect(fake.getConnectCalls()).toBe(2)
+    expect(result.current.status).toBe('fallback')
+
+    act(() => {
+      fake.getHandlers()?.onConnected?.()
+    })
+    expect(result.current.status).toBe('connected')
 
     vi.useRealTimers()
   })

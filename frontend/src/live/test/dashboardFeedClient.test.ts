@@ -49,6 +49,16 @@ describe('createDashboardFeedClient', () => {
     expect(socket.close).toHaveBeenCalledTimes(1)
   })
 
+  it('notifies when the websocket opens', () => {
+    const onConnected = vi.fn()
+    createDashboardFeedClient({ onConnected, onSnapshot: vi.fn() }).connect()
+
+    const socket = MockWebSocket.instances[0]
+    socket.onopen?.()
+
+    expect(onConnected).toHaveBeenCalledTimes(1)
+  })
+
   it('forwards parsed snapshot payloads', () => {
     const onSnapshot = vi.fn()
     createDashboardFeedClient({ onSnapshot }, { wsUrl: 'ws://example.test/ws' }).connect()

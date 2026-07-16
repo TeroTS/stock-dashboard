@@ -61,14 +61,16 @@ const mockTransactions: TransactionCardModel[] = [
 const openTransaction = vi.fn()
 const closeTransaction = vi.fn()
 const cancelOpenTransaction = vi.fn()
+let mockStatus: 'connected' | 'live' | 'reconnecting' | 'fallback' = 'live'
+let mockUpdatedAt: number | null = 1784054639000
 
 vi.mock('../../live/useDashboardFeed', () => ({
   useDashboardFeed: () => ({
     topGainers,
     topLosers,
     transactions: mockTransactions,
-    status: 'live',
-    updatedAt: 1784054639000,
+    status: mockStatus,
+    updatedAt: mockUpdatedAt,
     openTransaction,
     closeTransaction,
     cancelOpenTransaction,
@@ -77,6 +79,8 @@ vi.mock('../../live/useDashboardFeed', () => ({
 
 describe('StockDashboard', () => {
   beforeEach(() => {
+    mockStatus = 'live'
+    mockUpdatedAt = 1784054639000
     openTransaction.mockClear()
     closeTransaction.mockClear()
     cancelOpenTransaction.mockClear()
@@ -99,6 +103,16 @@ describe('StockDashboard', () => {
 
     expect(screen.getByText('Live')).toBeInTheDocument()
     expect(screen.getByText(/Updated: 2026-07-14 18:43:59 UTC/)).toBeInTheDocument()
+  })
+
+  it('renders connected waiting text before the first eligible snapshot', () => {
+    mockStatus = 'connected'
+    mockUpdatedAt = null
+
+    render(<StockDashboard />)
+
+    expect(screen.getByText('Connected')).toHaveClass('dashboard-status-connected')
+    expect(screen.getByText('Updated: Waiting for eligible market data')).toBeInTheDocument()
   })
 
   it('calls open close and cancel transaction actions from buttons', () => {

@@ -2,6 +2,7 @@
 import type { DashboardSnapshotDto } from './types'
 
 export interface DashboardFeedCallbacks {
+  onConnected?: () => void
   onSnapshot: (snapshot: DashboardSnapshotDto) => void
   onDisconnected?: () => void
 }
@@ -41,6 +42,9 @@ export const createDashboardFeedClient: DashboardFeedClientFactory = (callbacks,
         callbacks.onDisconnected?.()
       }
 
+      socket.onopen = () => {
+        callbacks.onConnected?.()
+      }
       socket.onmessage = (event) => {
         const snapshot = parseSnapshot(String(event.data))
         if (!snapshot) {

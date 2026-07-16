@@ -5,6 +5,7 @@ export interface ConnectionState {
 }
 
 export type ConnectionEvent =
+  | { type: 'connected' }
   | { type: 'snapshot_received' }
   | { type: 'disconnected' }
   | { type: 'retry_exhausted' }
@@ -18,6 +19,10 @@ export function connectionStateReducer(
   event: ConnectionEvent,
 ): ConnectionState {
   switch (event.type) {
+    case 'connected':
+      return {
+        status: 'connected',
+      }
     case 'snapshot_received':
       return {
         status: 'live',

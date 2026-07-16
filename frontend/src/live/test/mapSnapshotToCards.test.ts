@@ -51,6 +51,14 @@ describe('mapSnapshotToCards', () => {
     expect(cards).toEqual(snapshot.topGainers)
   })
 
+  it('clones nested snapshot point objects before storing stock cards', () => {
+    const cards = mapSnapshotToStockCards(snapshot.topGainers)
+
+    snapshot.topGainers[0].points[0].close = 999
+
+    expect(cards[0].points[0].close).toBe(211.18)
+  })
+
   it('sorts transactions newest opened first, with pending opens first when unopened', () => {
     const transactions = mapSnapshotToTransactions([
       snapshot.transactions[0],
@@ -71,5 +79,13 @@ describe('mapSnapshotToCards', () => {
 
     expect(transactions[0].transactionId).toBe('tx-2')
     expect(transactions[1].transactionId).toBe('tx-1')
+  })
+
+  it('clones nested snapshot point objects before storing transactions', () => {
+    const transactions = mapSnapshotToTransactions(snapshot.transactions)
+
+    snapshot.transactions[0].points[0].close = 999
+
+    expect(transactions[0].points[0].close).toBe(211.32)
   })
 })

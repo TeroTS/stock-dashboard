@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "massive": {
+      "url": "https://mcp.massive.com/",
+      "directTools": [
+        "search_endpoints"
+      ]
+    }
+  }
+}
