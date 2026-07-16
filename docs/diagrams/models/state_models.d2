@@ -1,40 +1,30 @@
-title: Boundary Models: Session and Transaction Persistence
+title: Canonical State Models
 
-symbol_session_state: {
-  label: "SymbolSessionState\n- symbol\n- sessionDate\n- openPrice?\n- latestPrice?\n- candlesByRange"
+direction: right
+
+WatchlistSymbol: {
+  label: "WatchlistSymbol\n- symbol"
 }
 
-rolling_series: {
-  label: "RollingCandleSeries\n- bucketSeconds\n- maxBuckets\n- buckets[]"
+SymbolState: {
+  label: "SymbolState\n- symbol\n- officialOpenPrice\n- close\n- percentChange\n- points"
 }
 
-candle_bucket: {
-  label: "CandleBucket\n- bucketStart\n- open\n- high\n- low\n- close\n- volume"
+TransactionState: {
+  label: "TransactionState\n- transactionId\n- symbol\n- positionType\n- status\n- submittedAt\n- openedAt?\n- closedAt?\n- entryPrice?\n- exitPrice?\n- profitLoss?\n- points"
 }
 
-transaction_record: {
-  label: "TransactionRecord\n- transactionId\n- symbol\n- positionType\n- openTimestamp\n- closeTimestamp?\n- entryPrice\n- exitPrice?\n- profitLoss?\n- status"
+LinePoint: {
+  label: "LinePoint\n- timestamp\n- close"
 }
 
-session_symbols_set: {
-  label: "Redis Set: session symbols\nstock-dashboard:session:{date}:symbols"
+DashboardSnapshotProjection: {
+  label: "DashboardSnapshotProjection\n- updatedAt\n- topGainers\n- topLosers\n- transactions"
 }
 
-session_state_key: {
-  label: "Redis Value: symbol state\nstock-dashboard:session:{date}:symbol:{symbol}"
-}
-
-transaction_ids_set: {
-  label: "Redis Set: transaction IDs\nstock-dashboard:transactions:session:{date}:ids"
-}
-
-transaction_key: {
-  label: "Redis Value: transaction\nstock-dashboard:transactions:session:{date}:tx:{id}"
-}
-
-symbol_session_state -> rolling_series: contains
-rolling_series -> candle_bucket: contains
-session_symbols_set -> session_state_key: indexes
-session_state_key -> symbol_session_state: stores
-transaction_ids_set -> transaction_key: indexes
-transaction_key -> transaction_record: stores
+WatchlistSymbol -> SymbolState: scopes
+SymbolState -> LinePoint: contains
+TransactionState -> LinePoint: contains
+TransactionState -> WatchlistSymbol: references
+DashboardSnapshotProjection -> SymbolState: contains
+DashboardSnapshotProjection -> TransactionState: contains

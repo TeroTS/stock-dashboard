@@ -1,21 +1,16 @@
-title: Key Flow: Realtime Snapshot Pipeline
+title: Key Flow: Realtime Snapshot
 
-tick_source: "Tick Source"
-tick_ingest: "Tick Ingest"
-session_lifecycle: "Session Lifecycle Gate"
-session_state: "Session State Store"
-ranking: "Ranking Service"
-snapshot_builder: "Snapshot Assembler"
-snapshot_publisher: "Snapshot Publisher"
-topic: "Dashboard Snapshot Topic"
-frontend: "Frontend Feed Client"
+provider: "Market Data Provider"
+watchlist: "Watchlist File"
+runtime: "Backend Runtime"
+state: "In-Memory Market State"
+publisher: "Snapshot Publisher"
+frontend: "Frontend Dashboard"
+user: "Dashboard User"
 
-tick_source -> tick_ingest: sends normalized tick
-tick_ingest -> session_lifecycle: checks current session
-tick_ingest -> session_state: writes symbol state and candles
-snapshot_publisher -> session_lifecycle: checks current session
-snapshot_publisher -> session_state: reads all symbol state
-snapshot_publisher -> ranking: computes gainers and losers
-snapshot_publisher -> snapshot_builder: assembles snapshot model
-snapshot_publisher -> topic: publishes dashboard snapshot
-frontend -> topic: subscribes
+watchlist -> runtime: scopes symbols
+provider -> runtime: sends updates
+runtime -> state: validates/applies
+state -> publisher: builds snapshot
+publisher -> frontend: pushes full snapshot
+frontend -> user: renders dashboard

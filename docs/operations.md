@@ -1,135 +1,129 @@
-# Operations Runbook
+# Operations
 
 ## Startup Dependencies and Ordering
-Recommended startup order:
-1. State store (Redis)
-2. Backend realtime feed service
-3. Frontend dashboard
-4. Optional observability stack (Prometheus/Grafana)
+High-level startup order:
+1. Ensure `MASSIVE_API_KEY` is available to the backend runtime.
+2. Start the backend service.
+3. Start the frontend service.
+4. Wait for the first eligible provider update to move the UI from `connected` to `live`.
 
-With Docker Compose this order is handled automatically (`backend` depends on Redis health, `frontend` depends on backend).
+Recommended local path:
+
+```bash
+export MASSIVE_API_KEY='your-api-key'
+./scripts/run-local
+```
 
 ## Configuration Surfaces
-Backend runtime config sources:
-- [backend/src/main/resources/application.yaml](../backend/src/main/resources/application.yaml)
-- [backend/src/main/resources/application-local.yaml](../backend/src/main/resources/application-local.yaml)
-- [backend/src/main/resources/application-prod.yaml](../backend/src/main/resources/application-prod.yaml)
+### Backend
+- Environment:
+  - `MASSIVE_API_KEY`
+- Repo-owned file input:
+  - `backend/watchlist.txt`
+- Local container wiring:
+  - `docker-compose.yml`
 
-Key backend environment/config fields:
-- `SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT`
-- `MARKET_SESSION_OPEN`, `MARKET_SESSION_CLOSE`
-- `market.watchlist`
-- `market.snapshot-cadence-ms`
-- `market.ingest-health-threshold-ms`
-- `market.redis.max-retries`
-- `APP_SECURITY_ALLOWED_ORIGINS`
-
-Frontend runtime config fields:
+### Frontend
 - `VITE_WS_URL`
-- `VITE_WS_TOPIC`
 - `VITE_API_BASE_URL`
-- `VITE_OBSERVABILITY_ENABLED`
-- `VITE_OBSERVABILITY_PROVIDER`
-- `VITE_OBSERVABILITY_CONSOLE`
-- `VITE_APP_VERSION`
+- Local container wiring in `docker-compose.yml`
 
-## Logging
-Backend emits structured logs to stdout.
+### Contract sources
+- HTTP commands: [openapi.yaml](../openapi.yaml)
+- Websocket snapshots and provider updates: [docs/contracts.md](./contracts.md)
 
-Expected structured fields:
-- `event`
-- `symbol` (when relevant)
-- `sessionState` (when relevant)
-- exception metadata for failures/retries
+## Logging and Monitoring Pointers
+Backend logs are the primary operational signal.
 
-Safety policy:
-- Do not log raw tick or snapshot bodies.
-- Log bounded identifiers and event metadata only.
+Common backend event keys:
+- `massive_feed_start`
+- `massive_feed_subscribe`
+- `massive_feed_connect`
+- `massive_feed_message`
+- `transaction_open`
+- `transaction_open_fill`
+- `transaction_close`
+- `transaction_close_fill`
+- `transaction_open_cancel`
 
-Common event keys:
-- `tick_processing_failed`
-- `snapshot_publish_failed`
-- `redis_operation_retry`
-- `redis_operation_failed`
-- `redis_operation_recovered`
-
-## Health and Metrics
-Health endpoint:
-- `GET /actuator/health`
-
-Profile-specific actuator behavior:
-- Local/default profile exposes `health`, `metrics`, `info`, `prometheus`.
-- Prod profile defaults to `health`, `info` only and hides health details.
-
-Core custom metric families:
-- `pipeline_ticks_total{symbol,result}`
-- `pipeline_tick_process_duration_seconds{result,...}`
-- `pipeline_snapshots_total{result}`
-- `pipeline_snapshot_build_duration_seconds{...}`
-- `pipeline_snapshot_publish_duration_seconds{...}`
-- `pipeline_redis_ops_total{operation,result}`
-- `pipeline_ingest_last_seen_age_seconds`
-- `pipeline_snapshot_last_published_age_seconds`
-- `pipeline_watchlist_size`
-- `pipeline_redis_degraded`
-
-Optional local observability stack:
-
-```bash
-docker compose --profile observability up --build -d
-```
-
-Access URLs:
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
-
-## Failure Modes and Recovery Tips
-1. Redis degraded or unavailable
-- Signal: `pipeline_redis_degraded=1`, retry/failure events in logs.
-- Checks: verify Redis reachability, credentials/network, retry settings.
-- Recovery: restore Redis connectivity; degraded signal should return to `0`.
-
-2. No snapshot updates while session expected OPEN
-- Signal: stale `pipeline_snapshot_last_published_age_seconds` or no topic updates.
-- Checks: session window config/timezone, tick ingest freshness, backend logs.
-- Recovery: correct session config and feed input; verify publisher resumes.
-
-3. Ticks dropped unexpectedly
-- Signal: elevated `pipeline_ticks_total{result="invalid|dropped_symbol|dropped_session"}`.
-- Checks: payload validity, watchlist membership, session state.
-- Recovery: fix producer payload or watchlist/session config.
-
-4. Browser transaction calls blocked
-- Signal: browser CORS/origin failures or preflight rejection.
-- Checks: `APP_SECURITY_ALLOWED_ORIGINS` includes dashboard origin.
-- Recovery: update allowlist and redeploy backend config.
-
-## What To Check First (Troubleshooting Checklist)
-1. Backend health:
-
-```bash
-curl http://localhost:8080/actuator/health
-```
-
-2. Pipeline metrics availability (local/default profile):
-
-```bash
-curl http://localhost:8080/actuator/prometheus | rg pipeline_
-```
-
-3. Active logs for failure/retry events:
+Useful log commands:
 
 ```bash
 docker compose logs -f backend
 ```
 
-4. Stream/API boundary reachability:
-- WebSocket endpoint: `ws://localhost:8080/ws/dashboard`
-- WebSocket topic: `/topic/dashboard-snapshots`
-- Transactions API: `POST /api/transactions`
+```bash
+docker compose logs -f frontend
+```
 
-## Related Documentation
+Quick health check:
+
+```bash
+curl http://localhost:8080/health
+```
+
+## Failure Modes and Recovery Tips
+### Missing API key
+- Symptom: backend fails during startup.
+- Check: backend logs show missing credential startup failure.
+- Recovery: export `MASSIVE_API_KEY` and restart the stack.
+
+### Provider connection stops or never becomes live
+- Symptom: UI stays `Connected`, `Reconnecting`, or `Fallback`.
+- Check: backend logs for feed connection warnings; frontend logs for websocket reconnects.
+- Recovery: verify provider credential validity, network reachability, and wait for the next eligible provider update.
+
+### Invalid transaction commands
+- Symptom: button click has no visible local effect.
+- Check: backend logs for `transaction_open`, `transaction_close`, or `transaction_open_cancel` rejections.
+- Recovery: treat the next websocket snapshot as authoritative; rejected commands do not mutate frontend local state.
+
+### Empty stock grids
+- Symptom: frontend is healthy but cards do not appear.
+- Check: watchlist contents, provider updates, and whether symbols are currently hidden by active transactions.
+- Recovery: verify `backend/watchlist.txt`, then confirm provider updates are arriving for those symbols.
+
+### State disappears after restart
+- Symptom: prior transactions and price history are gone.
+- Check: whether the backend process restarted.
+- Recovery: none in v1; runtime state is intentionally in-memory only.
+
+## What to Check First
+1. Stack is up:
+
+```bash
+docker compose ps
+```
+
+2. Backend health:
+
+```bash
+curl http://localhost:8080/health
+```
+
+3. Backend logs:
+
+```bash
+docker compose logs --tail=200 backend
+```
+
+4. Frontend logs:
+
+```bash
+docker compose logs --tail=200 frontend
+```
+
+5. Current watchlist input:
+
+```bash
+sed -n '1,40p' backend/watchlist.txt
+```
+
+6. Contract surfaces:
+- websocket: `ws://localhost:8080/ws`
+- command API: `http://localhost:8080/api/transactions`
+
+## Related Docs
 - Architecture: [docs/architecture.md](./architecture.md)
-- Data models: [docs/data-models.md](./data-models.md)
-- Local run commands: [docs/running.md](./running.md)
-- Compose-based local test flow: [docs/local-testing.md](./local-testing.md)
+- Data model: [docs/data-models.md](./data-models.md)
+- Running: [docs/running.md](./running.md)

@@ -1,193 +1,177 @@
-# Boundary Data Models
+# Data Model
 
-This document covers only models that cross component boundaries (ingest events, API/stream payloads, and persisted session/transaction state).
+## Purpose and Scope
+This document defines the storage-neutral records and derived projections that make up the stock dashboard system. It describes the authoritative runtime state the backend owns, the constraints that shape that state, and the projections exposed to the frontend.
 
-## Compatibility Policy
-- Snapshot and API payloads are JSON and currently versionless.
-- Backward-compatible changes are additive (adding optional fields).
-- Removing or renaming required fields is a breaking change and requires coordinated backend + frontend + test + docs updates.
-- Range labels are contract values (`5min`, `30min`, `120min`) and should be treated as stable boundary values.
+Authoritative boundary contracts still live in:
+- [openapi.yaml](../openapi.yaml) for HTTP commands
+- [docs/contracts.md](./contracts.md) for websocket snapshots and provider updates
 
-## Model: `NormalizedTick` (Ingest Event)
-Purpose:
-- Represents one incoming market tick used to update intraday symbol state.
+## Shared Conventions
+### Identifier rules
+- `symbol` is an uppercase watchlist symbol.
+- `transactionId` is backend-generated and unique within a running backend instance.
+- Timestamps use Unix epoch milliseconds.
 
-Fields:
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `timestamp` | ISO-8601 timestamp | Yes | Tick event time used for session gating and candle bucketing |
-| `symbol` | string | Yes | Ticker symbol; normalized to uppercase for watchlist checks |
-| `price` | decimal (`>= 0.0001`) | Yes | Last traded price for the tick |
-| `volume` | integer (`> 0`) | Yes | Trade size merged into current candle bucket |
+### Common audit metadata expectations
+- `updatedAt` on snapshots is backend-owned and represents the time of the latest accepted state change.
+- Transactions record `submittedAt` when the command is accepted.
+- Fill times come from provider `end_timestamp`, not browser clock time.
 
-Producers / Consumers:
-- Producer: Massive market data provider.
-- Consumer: backend tick ingest pipeline.
+### Authoritative vs derived state
+- The backend-owned authoritative state is in-memory only.
+- The frontend read model is fully derived from websocket snapshots.
+- Top gainer/loser lists are derived rankings, not stored authoritative records.
+- Closed transaction profit/loss is derived from entry price, exit price, position type, and fixed quantity.
 
-Versioning / Compatibility Rules:
-- Required fields are strict; missing/invalid values are dropped as invalid ticks.
-- Symbols outside watchlist are dropped without state changes.
+### Update and delete posture
+- Accepted provider updates mutate symbol state in place.
+- Accepted transaction commands mutate or remove transaction state in place.
+- Canceling a pending open deletes that transaction record from authoritative state.
+- Backend restart clears all symbol history and transaction state.
 
-Authoritative source:
-- [backend/src/main/java/com/stockdashboard/backend/domain/NormalizedTick.java](../backend/src/main/java/com/stockdashboard/backend/domain/NormalizedTick.java)
-- [backend/src/main/java/com/stockdashboard/backend/pipeline/TickIngestService.java](../backend/src/main/java/com/stockdashboard/backend/pipeline/TickIngestService.java)
-- [openspec/specs/realtime-stock-dashboard-feed/spec.md](../openspec/specs/realtime-stock-dashboard-feed/spec.md)
+## Authoritative Records
+### Record: Watchlist Symbol
+- Purpose: defines whether a symbol is in scope for ingestion, ranking, and trading.
+- Owning boundary: repo-owned watchlist configuration file.
+- Required fields:
+  - `symbol`
+- Optional fields:
+  - None
+- Lifecycle/state:
+  - No runtime status field
+  - Exists when present in `backend/watchlist.txt`
 
-## Model Family: Snapshot Stream Payloads
-Purpose:
-- Carries complete dashboard state to frontend subscribers on publish cadence.
+### Record: Symbol State
+- Purpose: stores the latest accepted market state and chart history for one watched symbol.
+- Owning boundary: backend runtime.
+- Required fields:
+  - `symbol`
+  - `officialOpenPrice`
+  - `close`
+  - `percentChange`
+  - `points`
+- Optional fields:
+  - None
+- Lifecycle/state:
+  - Created on the first accepted provider update for that symbol
+  - Updated on each accepted provider update
+  - Removed only when the backend process restarts
 
-### `DashboardSnapshot`
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `generatedAt` | ISO-8601 timestamp | Yes | Snapshot generation time |
-| `sessionState` | string | Yes | Session state string (`OPEN`/`CLOSED`) |
-| `topGainers` | `StockCardSnapshot[]` | Yes | Ranked gainer cards |
-| `topLosers` | `StockCardSnapshot[]` | Yes | Ranked loser cards |
-| `transactions` | `TransactionCardSnapshot[]` | Yes | Transaction cards (open and closed for active session) |
+### Record: Line Point
+- Purpose: stores one close-price point in symbol or transaction history.
+- Owning boundary: embedded inside symbol and transaction state.
+- Required fields:
+  - `timestamp`
+  - `close`
+- Optional fields:
+  - None
+- Lifecycle/state:
+  - Appended when price changes
+  - Rewrites the last point when the price is unchanged
+  - Oldest points are dropped once history exceeds 300 items
 
-### `StockCardSnapshot`
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `symbol` | string | Yes | Stock ticker |
-| `percentChange` | decimal | Yes | Percent change from market-open price |
-| `timeRanges` | `string[]` | Yes | Supported ranges (`5min`, `30min`, `120min`) |
-| `activeRange` | string | Yes | Default selected range |
-| `candlesByRange` | `map<string, CandleSnapshot[]>` | Yes | Candle series by range |
-| `yAxisLabels` | `string[]` | Yes | Price axis labels (2-decimal strings) |
-| `xAxisLabels` | `string[]` | Yes | Time labels (`HH:mm`) |
-| `buyLabel` | string | Yes | Open long action label |
-| `shortLabel` | string | Yes | Open short action label |
+### Record: Transaction State
+- Purpose: stores the lifecycle and chart history of one user transaction.
+- Owning boundary: backend runtime.
+- Required fields:
+  - `transactionId`
+  - `symbol`
+  - `positionType`
+  - `status`
+  - `submittedAt`
+  - `points`
+- Optional fields:
+  - `openedAt`
+  - `closedAt`
+  - `entryPrice`
+  - `exitPrice`
+  - `profitLoss`
+- Lifecycle/state:
+  - `PENDING_OPEN`: command accepted, waiting for next accepted update for the same symbol
+  - `OPEN`: filled from the next accepted symbol update
+  - `PENDING_CLOSE`: close command accepted, waiting for next accepted update for the same symbol
+  - `CLOSED`: filled close state with frozen chart history
+  - There is no persisted `CANCELED` transaction state; canceling a pending open removes the record
 
-### `TransactionCardSnapshot`
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `transactionId` | string | Yes | Stable transaction identifier |
-| `symbol` | string | Yes | Ticker for transaction |
-| `timeRanges` | `string[]` | Yes | Supported ranges |
-| `activeRange` | string | Yes | Default selected range |
-| `candlesByRange` | `map<string, CandleSnapshot[]>` | Yes | Candle series by range |
-| `yAxisLabels` | `string[]` | Yes | Price axis labels |
-| `xAxisLabels` | `string[]` | Yes | Time axis labels |
-| `positionType` | enum (`LONG` \| `SHORT`) | Yes | Position side |
-| `status` | enum (`OPEN` \| `CLOSED`) | Yes | Lifecycle state |
-| `openTimestamp` | ISO-8601 timestamp | Yes | Position open time |
-| `closeTimestamp` | ISO-8601 timestamp/null | No | Position close time |
-| `entryPrice` | decimal | Yes | Open price used for P/L |
-| `exitPrice` | decimal/null | No | Close price |
-| `profitLoss` | decimal/null | No | Realized P/L after close |
-| `closeActionLabel` | string/null | No | `Sell` for open long, `Cover` for open short, `null` when closed |
+## Relationship Rules
+- One watchlist symbol can have at most one current symbol state record.
+- One transaction references exactly one watchlist symbol.
+- One watchlist symbol can have many transaction records over backend lifetime, but at most one active or pending transaction at a time.
+- One symbol state contains zero to 300 line points.
+- One transaction state contains zero to 300 line points.
+- Transaction chart history mirrors the symbol history for the same symbol until the transaction is closed.
 
-### `CandleSnapshot`
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `bucketStart` | ISO-8601 timestamp | Yes | Bucket start instant |
-| `open` | decimal | Yes | First price in bucket |
-| `high` | decimal | Yes | Highest price in bucket |
-| `low` | decimal | Yes | Lowest price in bucket |
-| `close` | decimal | Yes | Last price in bucket |
-| `volume` | integer | Yes | Total bucket volume |
+Cross-record invariants:
+- Pending open and pending close fills use the next accepted provider update for the same symbol only.
+- Closed transactions stop inheriting future symbol points.
+- Symbols with `PENDING_OPEN`, `OPEN`, or `PENDING_CLOSE` transactions are excluded from stock ranking projections.
 
-Producers / Consumers:
-- Producer: backend snapshot publisher.
-- Consumer: frontend feed client and snapshot mapper.
+## Constraint Rules
+### Uniqueness
+- Watchlist symbols must be unique after trim and uppercase normalization.
+- `transactionId` must be unique within the running backend process.
 
-Versioning / Compatibility Rules:
-- Frontend expects all required fields above.
-- New optional fields are allowed if existing required fields remain unchanged.
-- Range keys in `candlesByRange` must stay aligned with `timeRanges`.
+### Active transaction limits
+- At most one transaction per symbol may be in `PENDING_OPEN`, `OPEN`, or `PENDING_CLOSE`.
+- Opening a transaction requires current symbol state to exist.
+- Closing a transaction is valid only from `OPEN`.
+- Canceling a transaction open is valid only from `PENDING_OPEN`.
 
-Authoritative source:
-- [backend/src/main/java/com/stockdashboard/backend/snapshot/DashboardSnapshot.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/DashboardSnapshot.java)
-- [backend/src/main/java/com/stockdashboard/backend/snapshot/StockCardSnapshot.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/StockCardSnapshot.java)
-- [backend/src/main/java/com/stockdashboard/backend/snapshot/TransactionCardSnapshot.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/TransactionCardSnapshot.java)
-- [backend/src/main/java/com/stockdashboard/backend/snapshot/CandleSnapshot.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/CandleSnapshot.java)
-- [frontend/src/live/types.ts](../frontend/src/live/types.ts)
-- [backend/src/test/java/com/stockdashboard/backend/ws/WebSocketSnapshotContractIntegrationTest.java](../backend/src/test/java/com/stockdashboard/backend/ws/WebSocketSnapshotContractIntegrationTest.java)
+### Field and lifecycle constraints
+- Provider updates with missing `officialOpenPrice` are ignored.
+- Provider updates for symbols outside the watchlist are ignored.
+- `percentChange` is derived from `close` and `officialOpenPrice`.
+- `profitLoss` stays `null` until the transaction reaches `CLOSED`.
+- Fixed quantity for realized profit/loss is 100 shares.
+- Point history length must never exceed 300.
 
-Model diagram:
+## Derived Projections
+### Projection: Dashboard Snapshot
+- Source authoritative records:
+  - symbol state
+  - transaction state
+- Rebuildability expectation:
+  - fully rebuildable from current in-memory authoritative state
+- Audience visibility:
+  - sent to every connected websocket client
+- Notes:
+  - contains `updatedAt`, `topGainers`, `topLosers`, and `transactions`
+  - acts as a full read-model replacement, not a patch
+
+### Projection: Stock Ranking Cards
+- Source authoritative records:
+  - symbol state
+  - transaction state
+- Rebuildability expectation:
+  - recalculated on every accepted symbol-state change
+- Audience visibility:
+  - visible to dashboard clients through snapshot `topGainers` and `topLosers`
+- Notes:
+  - ordered by `percentChange`
+  - limited to five gainers and five losers
+  - excludes symbols with active or pending transactions
+
+### Projection: Transaction Cards
+- Source authoritative records:
+  - transaction state
+- Rebuildability expectation:
+  - recalculated on every accepted transaction or relevant symbol update
+- Audience visibility:
+  - visible to dashboard clients through snapshot `transactions`
+- Notes:
+  - includes pending, open, pending-close, and closed transactions
+  - closed cards keep frozen points and realized profit/loss
+
+## Mapping Notes for Implementers
+- Preserve the difference between authoritative runtime state and derived snapshot payloads.
+- Preserve timestamp semantics: command acceptance uses backend clock; fills use provider event time.
+- Preserve the next-accepted-update fill rule for both open and close transitions.
+- Preserve point-copy semantics when a transaction is created and while it remains live.
+- Preserve freeze semantics for closed transactions.
+- Preserve full-snapshot websocket behavior; clients should not need patch merging.
+- If persistence is added later, the concrete store must still preserve these record boundaries, status transitions, timestamp rules, and active-transaction constraints.
+
+Model diagrams:
 - [docs/diagrams/models/api_models.d2](./diagrams/models/api_models.d2)
-
-## Model Family: Transaction API Payloads
-Purpose:
-- Allows frontend to open and close positions and retrieve session transactions.
-
-### `OpenTransactionRequest`
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `symbol` | string | Yes | Symbol to open |
-| `positionType` | enum (`LONG` \| `SHORT`) | Yes | Position side |
-
-### `TransactionRecord` (API response model)
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `transactionId` | string | Yes | Transaction ID |
-| `symbol` | string | Yes | Symbol |
-| `positionType` | enum (`LONG` \| `SHORT`) | Yes | Position side |
-| `openTimestamp` | ISO-8601 timestamp | Yes | Open time |
-| `closeTimestamp` | ISO-8601 timestamp/null | No | Close time |
-| `entryPrice` | decimal | Yes | Entry price |
-| `exitPrice` | decimal/null | No | Exit price |
-| `profitLoss` | decimal/null | No | Realized P/L |
-| `status` | enum (`OPEN` \| `CLOSED`) | Yes | Position state |
-
-Producers / Consumers:
-- Producer: backend transaction controller/service.
-- Consumer: frontend transaction API client (mutations) and backend snapshot assembler (for read model output).
-
-Versioning / Compatibility Rules:
-- Open request requires both fields.
-- Close operation is idempotency-sensitive: closing an already closed transaction returns conflict.
-- P/L is computed using fixed quantity `100`.
-
-Authoritative source:
-- [backend/src/main/java/com/stockdashboard/backend/transaction/TransactionController.java](../backend/src/main/java/com/stockdashboard/backend/transaction/TransactionController.java)
-- [backend/src/main/java/com/stockdashboard/backend/transaction/TransactionRecord.java](../backend/src/main/java/com/stockdashboard/backend/transaction/TransactionRecord.java)
-- [backend/src/main/java/com/stockdashboard/backend/transaction/TransactionService.java](../backend/src/main/java/com/stockdashboard/backend/transaction/TransactionService.java)
-- [frontend/src/live/transactionsApi.ts](../frontend/src/live/transactionsApi.ts)
-- [backend/src/test/java/com/stockdashboard/backend/transaction/TransactionControllerTest.java](../backend/src/test/java/com/stockdashboard/backend/transaction/TransactionControllerTest.java)
-- [backend/src/test/java/com/stockdashboard/backend/transaction/TransactionServiceTest.java](../backend/src/test/java/com/stockdashboard/backend/transaction/TransactionServiceTest.java)
-
-## Model Family: Redis Session/Transaction State
-Purpose:
-- Preserves intraday state across backend restarts and supports daily reset boundaries.
-
-### Redis key groups
-| Key Pattern | Meaning |
-| --- | --- |
-| `stock-dashboard:session:current` | Current session date |
-| `stock-dashboard:sessions` | Set of known session dates for symbol state |
-| `stock-dashboard:session:{date}:symbols` | Set of symbols persisted for that session |
-| `stock-dashboard:session:{date}:symbol:{symbol}` | JSON-serialized `SymbolSessionState` |
-| `stock-dashboard:transactions:sessions` | Set of known session dates for transactions |
-| `stock-dashboard:transactions:session:{date}:ids` | Set of transaction IDs for a session |
-| `stock-dashboard:transactions:session:{date}:tx:{id}` | JSON-serialized `TransactionRecord` |
-
-### `SymbolSessionState` payload
-Key fields:
-- `symbol`
-- `sessionDate`
-- `openPrice`
-- `latestPrice`
-- `candlesByRange` map keyed by `RangeDefinition`
-- Each range contains `RollingCandleSeries` with `bucketSeconds`, `maxBuckets`, and `buckets[]`
-- Each bucket contains OHLCV (`bucketStart`, `open`, `high`, `low`, `close`, `volume`)
-
-Producers / Consumers:
-- Producer: tick ingest service and session lifecycle service.
-- Consumers: ranking service, snapshot assembler/publisher, transaction service.
-
-Versioning / Compatibility Rules:
-- Session state is reset when current session date changes at OPEN boundary.
-- Candle range definitions must stay aligned with snapshot mapping expectations.
-
-Authoritative source:
-- [backend/src/main/java/com/stockdashboard/backend/state/RedisSessionStateStore.java](../backend/src/main/java/com/stockdashboard/backend/state/RedisSessionStateStore.java)
-- [backend/src/main/java/com/stockdashboard/backend/transaction/RedisTransactionStore.java](../backend/src/main/java/com/stockdashboard/backend/transaction/RedisTransactionStore.java)
-- [backend/src/main/java/com/stockdashboard/backend/domain/SymbolSessionState.java](../backend/src/main/java/com/stockdashboard/backend/domain/SymbolSessionState.java)
-- [backend/src/main/java/com/stockdashboard/backend/domain/RollingCandleSeries.java](../backend/src/main/java/com/stockdashboard/backend/domain/RollingCandleSeries.java)
-- [backend/src/main/java/com/stockdashboard/backend/domain/CandleBucket.java](../backend/src/main/java/com/stockdashboard/backend/domain/CandleBucket.java)
-- [backend/src/main/java/com/stockdashboard/backend/session/SessionLifecycleService.java](../backend/src/main/java/com/stockdashboard/backend/session/SessionLifecycleService.java)
-
-Model diagram:
 - [docs/diagrams/models/state_models.d2](./diagrams/models/state_models.d2)

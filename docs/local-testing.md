@@ -1,104 +1,61 @@
-# Local End-to-End Testing (Docker Compose)
+# Local Testing
 
-This project can be run locally with Docker Compose using three services:
-
-- `redis` (state storage)
-- `backend` (Spring Boot realtime feed)
-- `frontend` (Vite app)
-
-Optional observability profile:
-- `prometheus` (metrics scraping)
-- `grafana` (dashboards)
+## Purpose
+This runbook covers a simple end-to-end local check of the stock dashboard using the real frontend, real backend, real HTTP command endpoints, and the real websocket snapshot feed.
 
 ## Prerequisites
+- Docker
+- Docker Compose
+- `MASSIVE_API_KEY`
 
-- Docker Desktop (or Docker Engine + Compose plugin)
-- Open ports `5173`, `8080`, and `6379`
-
-## Start the stack
-
-From repository root:
+## Start the Stack
 
 ```bash
-docker compose up --build -d
+export MASSIVE_API_KEY='your-api-key'
+./scripts/run-local
 ```
 
-With observability stack:
-
-```bash
-docker compose --profile observability up --build -d
-```
-
-## Verify services
+## Verify Services
 
 ```bash
 docker compose ps
 ```
 
+```bash
+curl http://localhost:8080/health
+```
+
 Expected:
+- frontend is reachable at `http://localhost:5173`
+- backend health returns `{"status":"ok"}`
 
-- `stock-dashboard-frontend` is `Up` on `0.0.0.0:5173->5173`
-- `stock-dashboard-backend` is `Up` on `0.0.0.0:8080->8080`
-- `stock-dashboard-redis` is `Up` on `0.0.0.0:6379->6379`
+## Manual End-to-End Check
+1. Open `http://localhost:5173`.
+2. Confirm the page loads without a blank screen.
+3. Confirm the status badge moves through `Connected` and then to `Live` once a snapshot arrives.
+4. Confirm `Updated:` changes when new snapshots arrive.
+5. Confirm stock cards appear for symbols without active transactions.
+6. Click `Buy` or `Short` on one stock card.
+7. Confirm the symbol disappears from the stock grid and appears in the transaction grid as `PENDING_OPEN`.
+8. Wait for the next accepted update for that symbol.
+9. Confirm the transaction becomes `OPEN`.
+10. Click `Sell` or `Cover`.
+11. Confirm the transaction becomes `PENDING_CLOSE`, then `CLOSED` on the next accepted update for that symbol.
+12. For a pending open transaction, confirm the cancel button removes the transaction and returns the symbol to the stock grid.
 
-Backend health check:
-
-```bash
-curl http://localhost:8080/actuator/health
-```
-
-Prometheus endpoint check:
-
-```bash
-curl http://localhost:8080/actuator/prometheus | rg "pipeline_(ticks|snapshots|redis_ops|ingest_last_seen_age_seconds|snapshot_last_published_age_seconds|watchlist_size|redis_degraded)"
-```
-
-## Manual E2E test flow
-
-1. Open `http://localhost:5173` in browser.
-2. Confirm dashboard loads with 10 stock cards.
-3. Confirm status badge is `Live`.
-4. Confirm metadata line (`Updated: ... • Session: OPEN`) changes every few seconds.
-5. Confirm no frontend hard-failure (blank screen/crash) when refreshing.
-
-## Why status should be `Live` in Docker setup
-
-Compose sets backend session window to full-day for local testing:
-
-- `MARKET_SESSION_OPEN=00:00`
-- `MARKET_SESSION_CLOSE=23:59`
-
-This ensures realtime updates are available any time you test locally.
-
-## View logs
+## Useful Logs
 
 ```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f redis
+docker compose logs -f backend frontend
 ```
 
-Observability services:
+## Stop the Stack
 
 ```bash
-docker compose --profile observability logs -f prometheus
-docker compose --profile observability logs -f grafana
+docker compose down --remove-orphans
 ```
 
-URLs:
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (`admin` / `admin`)
-
-## Stop and clean up
-
-Stop services:
-
-```bash
-docker compose down
-```
-
-Stop and also remove volumes:
-
-```bash
-docker compose down -v
-```
+## Related Docs
+- Running: [docs/running.md](./running.md)
+- Operations: [docs/operations.md](./operations.md)
+- Contracts: [docs/contracts.md](./contracts.md)

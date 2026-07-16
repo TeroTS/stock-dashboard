@@ -1,118 +1,103 @@
-# Running The System
+# Running
 
 ## Prerequisites
-- Docker + Docker Compose plugin (recommended path), or:
-- Node.js 22+, `pnpm`, Java 21, Maven 3.9+, and a Redis instance on `localhost:6379`
+- Node.js 22+
+- `pnpm`
+- Python 3.12+
+- `uv`
+- Docker
+- Docker Compose
+- `MASSIVE_API_KEY`
 
-## Option A: Run with Docker Compose (Recommended)
-From repository root:
-
-```bash
-docker compose up --build -d
-```
-
-Optional observability profile:
-
-```bash
-docker compose --profile observability up --build -d
-```
-
-Verify services:
+## Recommended Local Start
+Set up host dependencies once:
 
 ```bash
-docker compose ps
-curl http://localhost:8080/actuator/health
+./scripts/setup
 ```
 
-Access points:
+Start the app with Docker Compose through the repo script:
+
+```bash
+export MASSIVE_API_KEY='your-api-key'
+./scripts/run-local
+```
+
+Stop the stack from another terminal:
+
+```bash
+docker compose down --remove-orphans
+```
+
+## Access URLs
 - Frontend: `http://localhost:5173`
-- Backend health: `http://localhost:8080/actuator/health`
-- Prometheus (optional): `http://localhost:9090`
-- Grafana (optional): `http://localhost:3000`
+- Backend health: `http://localhost:8080/health`
+- Backend websocket: `ws://localhost:8080/ws`
+- Backend command API base: `http://localhost:8080`
 
-Stop:
-
-```bash
-docker compose down
-```
-
-Stop and remove volumes:
+## Verification
+Run the full repo verification path:
 
 ```bash
-docker compose down -v
+./scripts/verify
 ```
 
-## Option B: Run services directly
-1. Start Redis (example with Docker):
+Useful direct checks:
 
 ```bash
-docker run --rm -p 6379:6379 redis:7.2-alpine
+curl http://localhost:8080/health
 ```
-
-2. Start backend:
 
 ```bash
-cd backend
-mvn spring-boot:run
+docker compose logs -f backend frontend
 ```
 
-3. Start frontend (new terminal):
+## Runtime Inputs
+Backend:
+- `MASSIVE_API_KEY`
+- `backend/watchlist.txt`
+
+Frontend local defaults from Compose:
+- `VITE_WS_URL=ws://localhost:8080/ws`
+- `VITE_API_BASE_URL=http://localhost:8080`
+
+## Common First-Run Troubleshooting
+### Backend exits immediately
+- Check that `MASSIVE_API_KEY` is set in the shell where you ran `./scripts/run-local`.
+- Check backend logs:
 
 ```bash
-cd frontend
-pnpm install
-pnpm dev
+docker compose logs backend
 ```
 
-## Test Commands
-Frontend (from `frontend/`):
+### Frontend loads but stays in `Fallback`
+- Wait for the first eligible provider update.
+- Check backend health:
 
 ```bash
-pnpm test
-pnpm lint
-pnpm build
+curl http://localhost:8080/health
 ```
 
-Backend (from `backend/`):
+- Check websocket and feed logs:
 
 ```bash
-mvn test
-mvn package
+docker compose logs -f backend
 ```
 
-## Runtime Contract Quick Check
-Use these checks after startup:
+### Commands do nothing in the UI
+- Confirm the frontend can reach `http://localhost:8080`.
+- Check backend logs for `404`, `409`, or `422` command rejections.
+- Remember the websocket snapshot remains authoritative after command failures.
 
-```bash
-curl http://localhost:8080/actuator/health
-curl http://localhost:8080/actuator/prometheus | rg pipeline_
-```
+### Wrong symbols or no symbols
+- Check `backend/watchlist.txt`.
+- Blank lines are ignored and duplicate symbols are removed after uppercase normalization.
 
-Expected stream/API surfaces:
-- WebSocket endpoint: `ws://localhost:8080/ws/dashboard`
-- Topic: `/topic/dashboard-snapshots`
-- Transactions API: `POST /api/transactions`, `POST /api/transactions/{id}/close`, `GET /api/transactions`
+### Port conflicts
+- Free ports `5173` and `8080`, then restart `./scripts/run-local`.
 
-## First-Run Troubleshooting
-1. Frontend loads but shows fallback/no live updates
-- Check backend health endpoint and backend logs.
-- Validate websocket URL/topic defaults or `VITE_WS_URL` and `VITE_WS_TOPIC`.
-- Verify session window values (`MARKET_SESSION_OPEN`, `MARKET_SESSION_CLOSE`) are appropriate for local testing.
-
-2. Transaction actions fail from UI
-- Confirm backend CORS/origin allowlist includes frontend origin.
-- Check backend logs for transaction validation errors (session closed, missing live price, symbol already open).
-- Verify `VITE_API_BASE_URL` points to the backend instance.
-
-3. Backend starts but no persisted state
-- Confirm Redis connectivity (`SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT`).
-- Check for Redis retry/degraded signals in metrics (`pipeline_redis_degraded`).
-
-4. Metrics endpoint unavailable
-- `application-local.yaml` exposes `/actuator/prometheus`.
-- `application-prod.yaml` hides it by default unless reconfigured.
-
-## Related Runbooks
-- Local testing flow: [docs/local-testing.md](./local-testing.md)
-- Operational checks and recovery: [docs/operations.md](./operations.md)
-- Production hardening checklist: [docs/production-hardening-checklist.md](./production-hardening-checklist.md)
+## Related Docs
+- Architecture: [docs/architecture.md](./architecture.md)
+- Operations: [docs/operations.md](./operations.md)
+- Local testing: [docs/local-testing.md](./local-testing.md)
+- Contracts: [docs/contracts.md](./contracts.md)

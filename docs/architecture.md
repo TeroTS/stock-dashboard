@@ -1,82 +1,100 @@
 # Architecture
 
 ## Overview
-The stock dashboard system processes a live intraday tick stream, keeps per-symbol rolling state for a market session, and publishes full dashboard snapshots to connected clients on a fixed cadence. The same snapshot includes both stock ranking cards and transaction cards so the frontend has a single source of truth for rendering.
+The stock dashboard shows a live watchlist view built from one authoritative backend snapshot stream. The backend consumes watched-symbol aggregate updates, keeps in-memory market and transaction state, and pushes full dashboard snapshots to connected browser clients. The frontend treats each snapshot as a full read-model replacement and uses HTTP only for transaction commands.
 
 Primary users:
-- Dashboard users viewing live gainers/losers and managing open/closed positions.
-- Developers/operators validating session behavior, feed freshness, and transaction lifecycle behavior.
+- Dashboard users watching top gainers, top losers, and transaction cards
+- Developers running the app locally against live provider data
+- Operators checking feed health, command handling, and websocket freshness
 
 ## Component Map
-| Component | Responsibility | Key Boundary Contracts |
+| Component | Responsibility | Key contracts |
 | --- | --- | --- |
-| Tick producer | Emits normalized market ticks for watchlisted symbols | `NormalizedTick` ingest model |
-| Realtime feed backend | Validates ticks, enforces session boundaries, updates rolling candles and rankings, publishes snapshots, serves transaction API | WebSocket endpoint/topic, transaction HTTP API, actuator health/metrics |
-| Session/transaction state store | Persists intraday symbol state and transactions across backend restarts | Redis keyspace + JSON payload contracts |
-| Dashboard frontend | Subscribes to snapshots, maps payloads to card models, triggers transaction open/close actions | Snapshot DTO contract, transaction API contract |
-| Observability tooling (optional) | Scrapes and visualizes backend metrics/logs for operational insight | `/actuator/prometheus` metrics + structured logs |
+| Market data provider | Emits per-symbol aggregate updates | Provider update shape in [docs/contracts.md](./contracts.md) |
+| Watchlist file | Defines which symbols the backend tracks | `backend/watchlist.txt` |
+| Backend runtime | Consumes provider updates, owns in-memory symbol and transaction state, serves health, HTTP commands, and websocket snapshots | [openapi.yaml](../openapi.yaml), [docs/contracts.md](./contracts.md) |
+| Frontend dashboard | Connects to the snapshot stream, replaces local read state from snapshots, sends transaction commands | [openapi.yaml](../openapi.yaml), [docs/contracts.md](./contracts.md) |
+| Browser client | Renders stock cards, transaction cards, timestamps, and connection state | UI behavior in `frontend/src/components/` |
 
-System context diagram: [docs/diagrams/system_context.d2](./diagrams/system_context.d2)
+System context diagram:
+- [docs/diagrams/system_context.d2](./diagrams/system_context.d2)
 
 ## Runtime Flows
-1. Realtime snapshot pipeline
-- Tick events are validated and filtered by watchlist/session window.
-- Accepted ticks update symbol session state and rolling candles.
-- On each cadence, the backend builds a full `DashboardSnapshot` and publishes to the dashboard topic.
-- Frontend applies the snapshot and renders updated stock/transaction cards.
-- Diagram: [docs/diagrams/key_flow_realtime_snapshot.d2](./diagrams/key_flow_realtime_snapshot.d2)
+### 1. Live snapshot flow
+1. The backend reads the watchlist file at startup.
+2. The backend subscribes to per-symbol aggregate updates from the market data provider.
+3. Accepted updates mutate in-memory symbol state and may fill pending transactions for the same symbol.
+4. The backend builds a full dashboard snapshot and pushes it to all connected websocket clients.
+5. The frontend replaces its local dashboard read model from that snapshot.
 
-2. Transaction open/close lifecycle
-- User clicks `Buy`/`Short` (open) or `Sell`/`Cover` (close) in the frontend.
-- Frontend calls transaction API endpoints.
-- Backend validates session + symbol state, persists transaction state, then next snapshot reflects the changed transaction/stock grids.
-- Diagram: [docs/diagrams/key_flow_transactions.d2](./diagrams/key_flow_transactions.d2)
+Diagram:
+- [docs/diagrams/key_flow_realtime_snapshot.d2](./diagrams/key_flow_realtime_snapshot.d2)
 
-3. Session rollover and daily reset
-- During OPEN session checks, backend verifies current session date.
-- If session date changed, prior intraday symbol and transaction state are cleared.
-- New session state becomes the current date before new ticks are processed/published.
-- Diagram: [docs/diagrams/key_flow_realtime_snapshot.d2](./diagrams/key_flow_realtime_snapshot.d2)
+### 2. Transaction command flow
+1. The user clicks `Buy`, `Short`, `Sell`, `Cover`, or pending-open cancel in the dashboard.
+2. The frontend sends an HTTP command to the backend.
+3. The backend validates current state and either rejects the command or updates transaction state immediately.
+4. The backend publishes a fresh full snapshot showing the pending state change.
+5. The next accepted provider update for that symbol fills pending open or pending close commands.
+6. The backend publishes another full snapshot with the filled transaction state.
+
+Diagram:
+- [docs/diagrams/key_flow_transactions.d2](./diagrams/key_flow_transactions.d2)
+
+### 3. Client reconnect flow
+1. The frontend reconnects when the websocket closes.
+2. The UI shows `reconnecting` briefly, then `fallback` if no snapshot arrives within the configured timeout.
+3. After reconnect, the backend sends the latest available full snapshot to the new connection.
+
+Diagram:
+- [docs/diagrams/key_flow_realtime_snapshot.d2](./diagrams/key_flow_realtime_snapshot.d2)
 
 ## System Boundaries
-| Boundary Surface | Direction | Contract Definition | Authoritative Source |
-| --- | --- | --- | --- |
-| Tick ingest event | Inbound to backend | `timestamp`, `symbol`, `price`, `volume` validation + watchlist/session filtering | [openspec/specs/realtime-stock-dashboard-feed/spec.md](../openspec/specs/realtime-stock-dashboard-feed/spec.md), [backend/src/main/java/com/stockdashboard/backend/domain/NormalizedTick.java](../backend/src/main/java/com/stockdashboard/backend/domain/NormalizedTick.java), [backend/src/main/java/com/stockdashboard/backend/pipeline/TickIngestService.java](../backend/src/main/java/com/stockdashboard/backend/pipeline/TickIngestService.java) |
-| WebSocket snapshot stream | Outbound from backend to frontend | Endpoint `/ws/dashboard`, topic `/topic/dashboard-snapshots`, `DashboardSnapshot` payload | [backend/src/main/java/com/stockdashboard/backend/ws/WebSocketConfig.java](../backend/src/main/java/com/stockdashboard/backend/ws/WebSocketConfig.java), [backend/src/main/java/com/stockdashboard/backend/snapshot/SnapshotPublisher.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/SnapshotPublisher.java), [backend/src/main/java/com/stockdashboard/backend/snapshot/DashboardSnapshot.java](../backend/src/main/java/com/stockdashboard/backend/snapshot/DashboardSnapshot.java), [backend/src/test/java/com/stockdashboard/backend/ws/WebSocketSnapshotContractIntegrationTest.java](../backend/src/test/java/com/stockdashboard/backend/ws/WebSocketSnapshotContractIntegrationTest.java) |
-| Transaction API | Bidirectional frontend/backend | `POST /api/transactions`, `POST /api/transactions/{id}/close`, `GET /api/transactions` | [backend/src/main/java/com/stockdashboard/backend/transaction/TransactionController.java](../backend/src/main/java/com/stockdashboard/backend/transaction/TransactionController.java), [backend/src/test/java/com/stockdashboard/backend/transaction/TransactionControllerTest.java](../backend/src/test/java/com/stockdashboard/backend/transaction/TransactionControllerTest.java), [frontend/src/live/transactionsApi.ts](../frontend/src/live/transactionsApi.ts) |
-| Intraday state persistence | Backend to Redis | Session symbol state and transaction records, keyed by session date | [backend/src/main/java/com/stockdashboard/backend/state/RedisSessionStateStore.java](../backend/src/main/java/com/stockdashboard/backend/state/RedisSessionStateStore.java), [backend/src/main/java/com/stockdashboard/backend/transaction/RedisTransactionStore.java](../backend/src/main/java/com/stockdashboard/backend/transaction/RedisTransactionStore.java) |
-| Health and metrics endpoints | Backend to operators/tools | `/actuator/health`, `/actuator/prometheus` (profile-dependent exposure), custom pipeline metric series | [backend/src/main/resources/application-local.yaml](../backend/src/main/resources/application-local.yaml), [backend/src/main/resources/application-prod.yaml](../backend/src/main/resources/application-prod.yaml), [docs/operations.md](./operations.md) |
+| Boundary surface | Direction | Contract source |
+| --- | --- | --- |
+| Provider aggregate update | Inbound to backend | [docs/contracts.md](./contracts.md) |
+| Health endpoint `GET /health` | Backend to operators | [openapi.yaml](../openapi.yaml) |
+| Transaction commands `POST /api/transactions`, `POST /api/transactions/{transactionId}/close`, `POST /api/transactions/{transactionId}/cancel-open` | Frontend to backend | [openapi.yaml](../openapi.yaml) |
+| Dashboard snapshot websocket `GET /ws` upgrade + JSON messages | Backend to frontend | [docs/contracts.md](./contracts.md) |
+| Watchlist symbol file | Repo config to backend | `backend/watchlist.txt` |
+| Frontend runtime URLs | Local env to frontend | `docker-compose.yml`, [docs/running.md](./running.md) |
 
 ## Operational Topology
-High-level local and production topology diagram: [docs/diagrams/deployment_topology.d2](./diagrams/deployment_topology.d2)
+Locally, the system usually runs as two app processes through Docker Compose: one backend service and one frontend service. The backend also depends on an external market data provider and a repo-owned watchlist file. The frontend depends on the backend for both websocket snapshots and transaction commands.
 
-Environment shape:
-- Local development typically runs frontend, backend, and Redis directly, or via `docker compose`.
-- Optional local observability adds Prometheus and Grafana.
-- Production deployment keeps the same logical boundaries (client, backend runtime, session state store, monitoring stack), with stricter CORS/origin allowlists and profile-specific actuator exposure.
+In deployed environments, the logical topology stays the same:
+- browser client
+- frontend app
+- backend runtime
+- external market data provider
+- repo-managed watchlist configuration
+
+Topology diagram:
+- [docs/diagrams/deployment_topology.d2](./diagrams/deployment_topology.d2)
 
 Run and ops details:
-- Local runbook: [docs/running.md](./running.md)
-- Operational checks and failure handling: [docs/operations.md](./operations.md)
+- [docs/running.md](./running.md)
+- [docs/operations.md](./operations.md)
 
-## How To Change Safely
-When changing boundary behavior, update contracts and tests first, then implementation.
+## How to Change Safely
+### HTTP command changes
+- Update [openapi.yaml](../openapi.yaml) first.
+- Keep `frontend/src/live/transactionsApi.ts` aligned with the contract.
+- Add or update backend tests in `backend/tests/` and frontend command tests in `frontend/src/live/test/`.
 
-1. Snapshot payload or chart/range behavior changes
-- Update backend snapshot records/assembler and corresponding frontend DTO/mapping types.
-- Update contract tests and frontend mapping tests.
-- Update [docs/data-models.md](./data-models.md) and impacted D2 diagrams.
+### Websocket snapshot or provider-event changes
+- Update [docs/contracts.md](./contracts.md) first.
+- Keep backend snapshot building and frontend DTO mapping aligned.
+- Update D2 diagrams under `docs/diagrams/` when flow or payload shape changes.
 
-2. Transaction lifecycle changes
-- Update transaction API/controller/service/store behavior and status handling.
-- Update frontend transaction API client and UI action wiring.
-- Re-run transaction controller/service tests and end-to-end live feed flow checks.
+### Canonical state changes
+- Update [docs/data-models.md](./data-models.md).
+- Preserve the current invariants around active transaction exclusivity, next-update fills, point history limits, and closed-transaction freeze behavior.
 
-3. Session window or rollover behavior changes
-- Update market/session configuration and lifecycle reset logic.
-- Verify tick acceptance/rejection and reset semantics with tests.
-- Update operations notes if health thresholds/metrics behavior changes.
-
-4. Any boundary change
-- Keep accepted spec aligned: [openspec/specs/realtime-stock-dashboard-feed/spec.md](../openspec/specs/realtime-stock-dashboard-feed/spec.md).
-- Keep architecture/data-model docs and related diagrams aligned in the same change.
+### Runtime and workflow changes
+- Keep [README.md](../README.md), [docs/running.md](./running.md), [docs/operations.md](./operations.md), and root scripts aligned.
+- Prefer root scripts for setup, run, and verification:
+  - `./scripts/setup`
+  - `./scripts/run-local`
+  - `./scripts/verify`
