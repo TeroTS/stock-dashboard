@@ -2,6 +2,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY watchlist.txt ./watchlist.txt
 COPY stock_dashboard_backend ./stock_dashboard_backend
 
 RUN pip install --no-cache-dir .

@@ -1,8 +1,10 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
+import stock_dashboard_backend.runtime as runtime_module
 from stock_dashboard_backend.market_state import AggregateUpdate, MarketState, TransactionCommandRejected
 from stock_dashboard_backend.runtime import Settings, SnapshotPublisher
 
@@ -26,6 +28,32 @@ def test_snapshot_publisher_drops_socket_if_initial_snapshot_send_fails() -> Non
 
     assert websocket.accepted is True
     assert websocket not in publisher.connections
+
+
+def test_settings_load_watchlist_from_file_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    watchlist_path = tmp_path / "watchlist.txt"
+    watchlist_path.write_text("aapl\n\nmsft\nAAPL\n", encoding="utf-8")
+    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", watchlist_path)
+
+    settings = Settings(massive_api_key="test-api-key")
+
+    assert settings.watchlist == ("AAPL", "MSFT")
+
+
+def test_settings_reject_missing_watchlist_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", tmp_path / "missing-watchlist.txt")
+
+    with pytest.raises(ValueError, match="watchlist"):
+        Settings(massive_api_key="test-api-key")
+
+
+def test_settings_reject_empty_watchlist_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    watchlist_path = tmp_path / "watchlist.txt"
+    watchlist_path.write_text("\n\n", encoding="utf-8")
+    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", watchlist_path)
+
+    with pytest.raises(ValueError, match="watchlist"):
+        Settings(massive_api_key="test-api-key")
 
 
 def test_market_state_ranks_symbols_from_aggregate_updates() -> None:

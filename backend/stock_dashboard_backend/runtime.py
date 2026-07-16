@@ -5,8 +5,9 @@ import contextlib
 import logging
 import os
 import time
-from dataclasses import dataclass, field
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -23,19 +24,29 @@ from stock_dashboard_backend.massive_feed import (
     create_massive_client,
 )
 
-DEFAULT_WATCHLIST = (
-    "AAPL",
-    "MSFT",
-    "NVDA",
-    "TSLA",
-    "AMZN",
-    "META",
-    "GOOG",
-    "NFLX",
-    "AMD",
-    "INTC",
-)
+WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 logger = logging.getLogger(__name__)
+
+
+# Load symbols from the repo-owned config file so the runtime and UI follow the same backend-owned list.
+def load_watchlist() -> tuple[str, ...]:
+    if not WATCHLIST_PATH.is_file():
+        raise ValueError(f"watchlist file is missing: {WATCHLIST_PATH}")
+
+    symbols: list[str] = []
+    seen: set[str] = set()
+
+    for line in WATCHLIST_PATH.read_text(encoding="utf-8").splitlines():
+        symbol = line.strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+
+    if not symbols:
+        raise ValueError(f"watchlist file is empty: {WATCHLIST_PATH}")
+
+    return tuple(symbols)
 
 
 @dataclass(slots=True)
@@ -43,7 +54,7 @@ class Settings:
     """Runtime configuration for Massive credentials and watchlist scope."""
 
     massive_api_key: str = field(default_factory=lambda: os.getenv("MASSIVE_API_KEY", ""))
-    watchlist: tuple[str, ...] = DEFAULT_WATCHLIST
+    watchlist: tuple[str, ...] = field(default_factory=load_watchlist)
 
 
 class SnapshotPublisher:

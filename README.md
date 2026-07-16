@@ -21,6 +21,8 @@ export MASSIVE_API_KEY='your-api-key'
 ./scripts/run-local
 ```
 
+Edit `backend/watchlist.txt` to change the tracked symbols.
+
 Set up a host development environment and verify changes:
 
 ```bash
@@ -88,6 +90,11 @@ Frontend env vars:
 
 Backend env vars:
 - `MASSIVE_API_KEY`
+
+Backend watchlist config:
+- `backend/watchlist.txt`
+- One symbol per line
+- Blank lines are ignored
 
 ## Backend environment
 
