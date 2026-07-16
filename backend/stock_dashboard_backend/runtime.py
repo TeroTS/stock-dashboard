@@ -79,7 +79,11 @@ class SnapshotPublisher:
     async def _send_snapshot(self, websocket: WebSocket, snapshot: dict[str, Any]) -> None:
         try:
             await websocket.send_json(snapshot)
-        except (RuntimeError, WebSocketDisconnect):
+        except (RuntimeError, WebSocketDisconnect, Exception) as error:
+            logger.warning(
+                "event=websocket_snapshot_send outcome=disconnected reason=send_failed error=%s",
+                error.__class__.__name__,
+            )
             self.disconnect(websocket)
 
 
@@ -90,15 +94,22 @@ class Runtime:
         self,
         settings: Settings,
         massive_client_options: dict[str, Any] | None = None,
+        snapshot_interval_seconds: float = 0.1,
     ) -> None:
         self.settings = settings
         self.market_state = MarketState()
         self.publisher = SnapshotPublisher()
         self._feed_task: asyncio.Task[None] | None = None
+        self._publish_task: asyncio.Task[None] | None = None
+        self._pending_snapshot: dict[str, Any] | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._massive_client: WebSocketClient | None = None
         self._massive_client_options = dict(massive_client_options or {})
+        self._snapshot_interval_seconds = snapshot_interval_seconds
 
     async def start(self) -> None:
+        self._event_loop = asyncio.get_running_loop()
+
         if not self.settings.massive_api_key:
             logger.error("event=massive_feed_start outcome=error reason=missing_api_key")
             raise ValueError("MASSIVE_API_KEY is required")
@@ -122,14 +133,18 @@ class Runtime:
         if self._massive_client is not None and self._massive_client.websocket is not None:
             await self._massive_client.close()
 
-        if self._feed_task is None:
-            return
+        if self._feed_task is not None:
+            self._feed_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._feed_task
 
-        self._feed_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._feed_task
+        if self._publish_task is not None:
+            self._publish_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._publish_task
 
     async def connect(self, websocket: WebSocket) -> None:
+        self._event_loop = asyncio.get_running_loop()
         snapshot = self.market_state.snapshot() if self.market_state.symbols else None
         await self.publisher.connect(websocket, snapshot)
 
@@ -159,7 +174,7 @@ class Runtime:
                 result.filled_close.exit_price,
             )
 
-        await self.publisher.broadcast(self.market_state.snapshot())
+        self._schedule_snapshot_publish(self.market_state.snapshot())
 
     async def open_transaction(
         self,
@@ -188,7 +203,7 @@ class Runtime:
             position_type,
             accepted["status"],
         )
-        await self.publisher.broadcast(self.market_state.snapshot())
+        self._schedule_snapshot_publish(self.market_state.snapshot())
         return accepted
 
     async def close_transaction(self, transaction_id: str) -> dict[str, str]:
@@ -228,8 +243,40 @@ class Runtime:
             raise
 
         logger.info(accepted_log[0], accepted["transactionId"], accepted["status"])
-        await self.publisher.broadcast(self.market_state.snapshot())
+        self._schedule_snapshot_publish(self.market_state.snapshot())
         return accepted
+
+    def _schedule_snapshot_publish(self, snapshot: dict[str, Any]) -> None:
+        current_loop = asyncio.get_running_loop()
+        if self._event_loop is None or self._event_loop.is_closed() or self._event_loop is current_loop:
+            self._event_loop = current_loop
+            self._enqueue_snapshot(snapshot)
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._enqueue_snapshot_from_foreign_loop(snapshot),
+            self._event_loop,
+        )
+        future.result()
+
+    def _enqueue_snapshot(self, snapshot: dict[str, Any]) -> None:
+        self._pending_snapshot = snapshot
+        if self._publish_task is None or self._publish_task.done():
+            self._publish_task = asyncio.create_task(self._drain_snapshot_publish_queue())
+
+    async def _enqueue_snapshot_from_foreign_loop(self, snapshot: dict[str, Any]) -> None:
+        self._enqueue_snapshot(snapshot)
+
+    async def _drain_snapshot_publish_queue(self) -> None:
+        while self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            await self.publisher.broadcast(snapshot)
+
+            if self._pending_snapshot is None:
+                return
+
+            await asyncio.sleep(self._snapshot_interval_seconds)
 
     async def _handle_massive_messages(self, messages: list[Any]) -> None:
         for message in messages:

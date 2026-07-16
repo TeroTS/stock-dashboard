@@ -20,6 +20,45 @@ class DisconnectingWebSocket:
         raise WebSocketDisconnect(code=1006)
 
 
+class AssertingWebSocket:
+    def __init__(self) -> None:
+        self.sent_payloads: list[object] = []
+
+    async def send_json(self, payload: object) -> None:
+        self.sent_payloads.append(payload)
+        raise AssertionError("drain failed")
+
+
+class RecordingWebSocket:
+    def __init__(self) -> None:
+        self.sent_payloads: list[object] = []
+
+    async def send_json(self, payload: object) -> None:
+        self.sent_payloads.append(payload)
+
+
+class BlockingPublisher:
+    def __init__(self) -> None:
+        self.snapshots: list[object] = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def broadcast(self, snapshot: object) -> None:
+        self.snapshots.append(snapshot)
+        self.started.set()
+        await self.release.wait()
+
+
+class FastPublisher:
+    def __init__(self) -> None:
+        self.snapshots: list[object] = []
+        self.started = asyncio.Event()
+
+    async def broadcast(self, snapshot: object) -> None:
+        self.snapshots.append(snapshot)
+        self.started.set()
+
+
 def test_snapshot_publisher_drops_socket_if_initial_snapshot_send_fails() -> None:
     publisher = SnapshotPublisher()
     websocket = DisconnectingWebSocket()
@@ -28,6 +67,96 @@ def test_snapshot_publisher_drops_socket_if_initial_snapshot_send_fails() -> Non
 
     assert websocket.accepted is True
     assert websocket not in publisher.connections
+
+
+def test_snapshot_publisher_drops_socket_if_broadcast_send_hits_assertion_error() -> None:
+    publisher = SnapshotPublisher()
+    broken_websocket = AssertingWebSocket()
+    healthy_websocket = RecordingWebSocket()
+    publisher.connections.update({broken_websocket, healthy_websocket})
+
+    asyncio.run(publisher.broadcast({"updatedAt": 1}))
+
+    assert broken_websocket not in publisher.connections
+    assert healthy_websocket in publisher.connections
+    assert healthy_websocket.sent_payloads == [{"updatedAt": 1}]
+
+
+def test_runtime_open_transaction_does_not_wait_for_slow_snapshot_broadcast() -> None:
+    async def scenario() -> None:
+        runtime = runtime_module.Runtime(
+            Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+            snapshot_interval_seconds=0.05,
+        )
+        publisher = BlockingPublisher()
+        runtime.publisher = publisher
+        runtime.market_state.apply_update(
+            runtime.settings.watchlist,
+            AggregateUpdate(
+                symbol="AAPL",
+                official_open_price=100.0,
+                close=101.0,
+                end_timestamp=1_000,
+            ),
+        )
+
+        accepted = await asyncio.wait_for(
+            runtime.open_transaction("AAPL", "LONG"),
+            timeout=0.05,
+        )
+
+        await asyncio.wait_for(publisher.started.wait(), timeout=0.05)
+        assert accepted == {"transactionId": "tx-000001", "status": "PENDING_OPEN"}
+
+        publisher.release.set()
+        await asyncio.wait_for(runtime._publish_task, timeout=0.05)
+
+    asyncio.run(scenario())
+
+
+def test_runtime_coalesces_snapshots_while_publish_interval_is_active() -> None:
+    async def scenario() -> None:
+        runtime = runtime_module.Runtime(
+            Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+            snapshot_interval_seconds=0.05,
+        )
+        publisher = FastPublisher()
+        runtime.publisher = publisher
+
+        await runtime.apply_update(
+            AggregateUpdate(
+                symbol="AAPL",
+                official_open_price=100.0,
+                close=101.0,
+                end_timestamp=1_000,
+            )
+        )
+        await asyncio.wait_for(publisher.started.wait(), timeout=0.05)
+        assert publisher.snapshots[-1]["updatedAt"] == 1_000
+
+        await runtime.apply_update(
+            AggregateUpdate(
+                symbol="AAPL",
+                official_open_price=100.0,
+                close=102.0,
+                end_timestamp=1_100,
+            )
+        )
+        await runtime.apply_update(
+            AggregateUpdate(
+                symbol="AAPL",
+                official_open_price=100.0,
+                close=103.0,
+                end_timestamp=1_200,
+            )
+        )
+
+        await asyncio.sleep(0.07)
+        assert [snapshot["updatedAt"] for snapshot in publisher.snapshots] == [1_000, 1_200]
+
+        await asyncio.wait_for(runtime._publish_task, timeout=0.05)
+
+    asyncio.run(scenario())
 
 
 def test_settings_load_watchlist_from_file_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
