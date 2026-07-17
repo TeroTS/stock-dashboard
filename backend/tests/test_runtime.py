@@ -136,7 +136,7 @@ def test_publisher_metrics_tracks_counts_rates_and_histogram() -> None:
 
     metrics.record_publish(now=1.0, overwrote_pending=False)
     metrics.record_publish(now=1.1, overwrote_pending=True)
-    metrics.record_broadcast(now=1.2, duration_ms=4.0)
+    metrics.record_broadcast(now=1.2, duration_ms=4.0, snapshot_bytes=512)
 
     snapshot = metrics.snapshot(now=1.2)
 
@@ -146,6 +146,7 @@ def test_publisher_metrics_tracks_counts_rates_and_histogram() -> None:
     assert snapshot["inputRatePerSecond"] == 2
     assert snapshot["outputRatePerSecond"] == 1
     assert snapshot["broadcastDurationMsHistogram"]["<=5ms"] == 1
+    assert snapshot["snapshotBytes"] == 512
 
     pruned_snapshot = metrics.snapshot(now=2.3)
 
@@ -198,8 +199,12 @@ def test_runtime_logs_snapshot_publisher_metrics_periodically(
             "overwriteCount": 1,
             "inputRatePerSecond": 3,
             "outputRatePerSecond": 2,
+            "connectionCount": 4,
+            "snapshotBytes": 512,
             "broadcastDurationMsHistogram": {"<=1ms": 2},
         }
+
+        runtime.market_state.transactions.append(object())
 
         with caplog.at_level(logging.INFO):
             await runtime.start()
@@ -207,6 +212,7 @@ def test_runtime_logs_snapshot_publisher_metrics_periodically(
             await runtime.stop()
 
         assert "event=snapshot_publisher_metrics outcome=observed publishCount=3 broadcastCount=2 overwriteCount=1 inputRatePerSecond=3 outputRatePerSecond=2" in caplog.text
+        assert "connectionCount=4 transactionCount=1 snapshotBytes=512" in caplog.text
         assert "broadcastDurationMsHistogram={'<=1ms': 2}" in caplog.text
 
     asyncio.run(scenario())

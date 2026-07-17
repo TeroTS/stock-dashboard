@@ -12,6 +12,7 @@ class _PublisherMetrics:
         self.publish_count = 0
         self.broadcast_count = 0
         self.overwrite_count = 0
+        self.last_snapshot_bytes = 0
         self.publish_timestamps: deque[float] = deque()
         self.broadcast_timestamps: deque[float] = deque()
         self.broadcast_duration_histogram = {
@@ -30,8 +31,9 @@ class _PublisherMetrics:
         if overwrote_pending:
             self.overwrite_count += 1
 
-    def record_broadcast(self, now: float, duration_ms: float) -> None:
+    def record_broadcast(self, now: float, duration_ms: float, snapshot_bytes: int) -> None:
         self.broadcast_count += 1
+        self.last_snapshot_bytes = snapshot_bytes
         self._record_rate(self.broadcast_timestamps, now)
         self._record_broadcast_duration(duration_ms)
 
@@ -44,6 +46,7 @@ class _PublisherMetrics:
             "overwriteCount": self.overwrite_count,
             "inputRatePerSecond": len(self.publish_timestamps),
             "outputRatePerSecond": len(self.broadcast_timestamps),
+            "snapshotBytes": self.last_snapshot_bytes,
             "broadcastDurationMsHistogram": dict(self.broadcast_duration_histogram),
         }
 

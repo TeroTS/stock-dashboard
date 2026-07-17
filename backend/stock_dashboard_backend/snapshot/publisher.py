@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from typing import Any
@@ -51,7 +52,9 @@ class SnapshotPublisher:
                 await self._publish_task
 
     def metrics(self) -> dict[str, Any]:
-        return self._metrics.snapshot(now=time.monotonic())
+        snapshot = self._metrics.snapshot(now=time.monotonic())
+        snapshot["connectionCount"] = len(self.connections)
+        return snapshot
 
     async def broadcast(self, snapshot: dict[str, Any]) -> None:
         for websocket in list(self.connections):
@@ -75,6 +78,7 @@ class SnapshotPublisher:
             self._metrics.record_broadcast(
                 now=time.monotonic(),
                 duration_ms=(time.perf_counter() - started_at) * 1000,
+                snapshot_bytes=len(json.dumps(snapshot)),
             )
 
             if self._pending_snapshot is None:

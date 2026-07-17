@@ -34,3 +34,4 @@ class Settings:
 
     massive_api_key: str = field(default_factory=lambda: os.getenv("MASSIVE_API_KEY", ""))
     watchlist: tuple[str, ...] = field(default_factory=load_watchlist)
+    log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))

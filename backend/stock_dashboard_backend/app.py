@@ -1,5 +1,6 @@
 """FastAPI app wiring for the stock dashboard backend."""
 
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -62,6 +63,12 @@ def create_app(
 ) -> FastAPI:
     runtime_settings = settings or Settings()
     build_runtime = runtime_factory or Runtime
+
+    # Attach a stdout handler at the configured level so app INFO events (feed, transactions,
+    # metrics) surface; uvicorn only configures its own loggers, not the app package logger.
+    logging.getLogger("stock_dashboard_backend").setLevel(runtime_settings.log_level)
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=runtime_settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

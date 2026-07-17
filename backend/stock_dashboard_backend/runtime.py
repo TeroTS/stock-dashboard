@@ -195,12 +195,15 @@ class Runtime:
             await asyncio.sleep(self._publisher_metrics_log_interval_seconds)
             metrics = self.publisher.metrics()
             logger.info(
-                "event=snapshot_publisher_metrics outcome=observed publishCount=%s broadcastCount=%s overwriteCount=%s inputRatePerSecond=%s outputRatePerSecond=%s broadcastDurationMsHistogram=%s",
+                "event=snapshot_publisher_metrics outcome=observed publishCount=%s broadcastCount=%s overwriteCount=%s inputRatePerSecond=%s outputRatePerSecond=%s connectionCount=%s transactionCount=%s snapshotBytes=%s broadcastDurationMsHistogram=%s",
                 metrics["publishCount"],
                 metrics["broadcastCount"],
                 metrics["overwriteCount"],
                 metrics["inputRatePerSecond"],
                 metrics["outputRatePerSecond"],
+                metrics["connectionCount"],
+                len(self.market_state.transactions),
+                metrics["snapshotBytes"],
                 metrics["broadcastDurationMsHistogram"],
             )
 
