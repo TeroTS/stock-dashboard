@@ -1,11 +1,9 @@
-"""Market-state models and snapshot assembly for the stock dashboard."""
+"""Market-state models and mutation rules for the stock dashboard."""
 
 import time
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Literal
-
-from stock_dashboard_backend.snapshot_builder import build_snapshot
 
 PositionType = Literal["LONG", "SHORT"]
 TransactionStatus = Literal["PENDING_OPEN", "OPEN", "PENDING_CLOSE", "CLOSED"]
@@ -84,7 +82,7 @@ class ApplyUpdateResult:
 
 
 class MarketState:
-    """Owns watched-symbol state mutation, transaction state, and full snapshot assembly."""
+    """Owns watched-symbol state mutation and transaction state."""
 
     def __init__(self) -> None:
         self.symbols: dict[str, SymbolState] = {}
@@ -184,27 +182,6 @@ class MarketState:
         self.transactions.remove(transaction)
         self.updated_at = submitted_at
         return {"transactionId": transaction_id, "status": "CANCELED"}
-
-    # Each websocket message is a full replacement snapshot for the frontend read model.
-    def snapshot(self) -> dict[str, object]:
-        active_symbols = {
-            transaction.symbol
-            for transaction in self.transactions
-            if transaction.status in ACTIVE_TRANSACTION_STATUSES
-        }
-        ranked = sorted(
-            (symbol for symbol in self.symbols.values() if symbol.symbol not in active_symbols),
-            key=lambda symbol: symbol.percent_change,
-        )
-        top_losers = ranked[:5]
-        top_gainers = reversed(ranked[-5:])
-
-        return build_snapshot(
-            updated_at=self.updated_at,
-            top_gainers=top_gainers,
-            top_losers=top_losers,
-            transactions=self.transactions,
-        )
 
     def _has_active_transaction(self, symbol: str) -> bool:
         return any(

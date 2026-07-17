@@ -10,9 +10,10 @@ from websockets.asyncio.server import ServerConnection, serve
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from stock_dashboard_backend.app import Settings, create_app
+from stock_dashboard_backend.app import create_app
 from stock_dashboard_backend.market_state import AggregateUpdate
 from stock_dashboard_backend.runtime import Runtime
+from stock_dashboard_backend.settings import Settings
 
 
 class ProviderServer:
@@ -158,6 +159,10 @@ class ClosingRuntime:
         self.disconnected = True
 
 
+def _apply_update(client: TestClient, runtime: Runtime, update: AggregateUpdate) -> None:
+    client.portal.call(runtime.apply_update, update)
+
+
 def test_websocket_route_ignores_socket_closed_during_connect() -> None:
     app = create_app(Settings(), runtime_factory=ClosingRuntime)
 
@@ -225,15 +230,15 @@ def test_open_transaction_returns_pending_snapshot_and_hides_symbol_from_stock_g
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
 
         with client.websocket_connect("/ws") as websocket:
@@ -277,15 +282,15 @@ def test_pending_open_publishes_filled_snapshot_on_next_same_symbol_update() -> 
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
 
         with client.websocket_connect("/ws") as websocket:
@@ -295,15 +300,15 @@ def test_pending_open_publishes_filled_snapshot_on_next_same_symbol_update() -> 
                 json={"symbol": "AAPL", "positionType": "LONG"},
             )
             pending_snapshot = websocket.receive_json()
-            asyncio.run(
-                runtime.apply_update(
+            _apply_update(
+                client,
+                runtime,
                     AggregateUpdate(
                         symbol="AAPL",
                         official_open_price=100.0,
                         close=102.25,
                         end_timestamp=1_700_000_000_200,
                     )
-                )
             )
             filled_snapshot = websocket.receive_json()
 
@@ -344,15 +349,15 @@ def test_cancel_open_transaction_returns_snapshot_without_pending_transaction() 
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
 
         with client.websocket_connect("/ws") as websocket:
@@ -385,30 +390,30 @@ def test_close_transaction_returns_pending_snapshot_and_closes_on_next_same_symb
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
         transaction_id = open_response.json()["transactionId"]
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
 
         with client.websocket_connect("/ws") as websocket:
@@ -417,15 +422,15 @@ def test_close_transaction_returns_pending_snapshot_and_closes_on_next_same_symb
             assert close_response.status_code == 202
             assert close_response.json() == {"transactionId": transaction_id, "status": "PENDING_CLOSE"}
             pending_close_snapshot = websocket.receive_json()
-            asyncio.run(
-                runtime.apply_update(
+            _apply_update(
+                client,
+                runtime,
                     AggregateUpdate(
                         symbol="AAPL",
                         official_open_price=100.0,
                         close=103.0,
                         end_timestamp=1_700_000_000_300,
                     )
-                )
             )
             closed_snapshot = websocket.receive_json()
 
@@ -460,30 +465,30 @@ def test_cancel_open_transaction_rejects_transactions_that_are_not_pending_open(
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
         transaction_id = open_response.json()["transactionId"]
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
 
         response = client.post(f"/api/transactions/{transaction_id}/cancel-open")
@@ -519,15 +524,15 @@ def test_close_transaction_rejects_transactions_that_are_not_open() -> None:
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
@@ -551,30 +556,30 @@ def test_close_transaction_rejects_pending_close_transaction() -> None:
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
         transaction_id = open_response.json()["transactionId"]
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
         first_close_response = client.post(f"/api/transactions/{transaction_id}/close")
         second_close_response = client.post(f"/api/transactions/{transaction_id}/close")
@@ -595,41 +600,41 @@ def test_close_transaction_rejects_closed_transaction() -> None:
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
         transaction_id = open_response.json()["transactionId"]
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
         first_close_response = client.post(f"/api/transactions/{transaction_id}/close")
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=103.0,
                     end_timestamp=1_700_000_000_300,
                 )
-            )
         )
         second_close_response = client.post(f"/api/transactions/{transaction_id}/close")
 
@@ -649,15 +654,15 @@ def test_open_transaction_rejects_duplicate_pending_symbol() -> None:
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
 
         first_response = client.post(
@@ -685,29 +690,29 @@ def test_open_transaction_rejects_symbol_with_open_transaction() -> None:
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         first_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
 
         second_response = client.post(
@@ -732,30 +737,30 @@ def test_open_transaction_rejects_symbol_with_pending_close_transaction() -> Non
 
     with TestClient(app) as client:
         runtime: Runtime = client.app.state.runtime
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=101.5,
                     end_timestamp=1_700_000_000_100,
                 )
-            )
         )
         open_response = client.post(
             "/api/transactions",
             json={"symbol": "AAPL", "positionType": "LONG"},
         )
         transaction_id = open_response.json()["transactionId"]
-        asyncio.run(
-            runtime.apply_update(
+        _apply_update(
+            client,
+            runtime,
                 AggregateUpdate(
                     symbol="AAPL",
                     official_open_price=100.0,
                     close=102.0,
                     end_timestamp=1_700_000_000_200,
                 )
-            )
         )
         close_response = client.post(f"/api/transactions/{transaction_id}/close")
 

@@ -5,8 +5,11 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 import stock_dashboard_backend.runtime as runtime_module
+import stock_dashboard_backend.settings as settings_module
 from stock_dashboard_backend.market_state import AggregateUpdate, MarketState, TransactionCommandRejected
-from stock_dashboard_backend.runtime import Settings, SnapshotPublisher
+from stock_dashboard_backend.settings import Settings
+from stock_dashboard_backend.snapshot_builder import build_market_snapshot
+from stock_dashboard_backend.snapshot_publisher import SnapshotPublisher
 
 
 class DisconnectingWebSocket:
@@ -37,8 +40,9 @@ class RecordingWebSocket:
         self.sent_payloads.append(payload)
 
 
-class BlockingPublisher:
+class BlockingPublisher(SnapshotPublisher):
     def __init__(self) -> None:
+        super().__init__(snapshot_interval_seconds=0.05)
         self.snapshots: list[object] = []
         self.started = asyncio.Event()
         self.release = asyncio.Event()
@@ -49,8 +53,9 @@ class BlockingPublisher:
         await self.release.wait()
 
 
-class FastPublisher:
+class FastPublisher(SnapshotPublisher):
     def __init__(self) -> None:
+        super().__init__(snapshot_interval_seconds=0.05)
         self.snapshots: list[object] = []
         self.started = asyncio.Event()
 
@@ -82,6 +87,36 @@ def test_snapshot_publisher_drops_socket_if_broadcast_send_hits_assertion_error(
     assert healthy_websocket.sent_payloads == [{"updatedAt": 1}]
 
 
+def test_snapshot_publisher_rejects_publish_from_another_event_loop() -> None:
+    async def scenario() -> None:
+        publisher = SnapshotPublisher()
+        publisher.publish({"updatedAt": 1})
+        await asyncio.wait_for(publisher._publish_task, timeout=0.05)
+
+        error: RuntimeError | None = None
+
+        def publish_on_foreign_loop() -> None:
+            nonlocal error
+
+            async def foreign_scenario() -> None:
+                publisher.publish({"updatedAt": 2})
+
+            try:
+                asyncio.run(foreign_scenario())
+            except RuntimeError as raised_error:
+                error = raised_error
+
+        import threading
+
+        thread = threading.Thread(target=publish_on_foreign_loop)
+        thread.start()
+        thread.join(timeout=1)
+
+        assert str(error) == "SnapshotPublisher used from multiple event loops"
+
+    asyncio.run(scenario())
+
+
 def test_runtime_open_transaction_does_not_wait_for_slow_snapshot_broadcast() -> None:
     async def scenario() -> None:
         runtime = runtime_module.Runtime(
@@ -109,7 +144,7 @@ def test_runtime_open_transaction_does_not_wait_for_slow_snapshot_broadcast() ->
         assert accepted == {"transactionId": "tx-000001", "status": "PENDING_OPEN"}
 
         publisher.release.set()
-        await asyncio.wait_for(runtime._publish_task, timeout=0.05)
+        await asyncio.wait_for(publisher._publish_task, timeout=0.05)
 
     asyncio.run(scenario())
 
@@ -154,7 +189,7 @@ def test_runtime_coalesces_snapshots_while_publish_interval_is_active() -> None:
         await asyncio.sleep(0.07)
         assert [snapshot["updatedAt"] for snapshot in publisher.snapshots] == [1_000, 1_200]
 
-        await asyncio.wait_for(runtime._publish_task, timeout=0.05)
+        await asyncio.wait_for(publisher._publish_task, timeout=0.05)
 
     asyncio.run(scenario())
 
@@ -162,7 +197,7 @@ def test_runtime_coalesces_snapshots_while_publish_interval_is_active() -> None:
 def test_settings_load_watchlist_from_file_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     watchlist_path = tmp_path / "watchlist.txt"
     watchlist_path.write_text("aapl\n\nmsft\nAAPL\n", encoding="utf-8")
-    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", watchlist_path)
+    monkeypatch.setattr(settings_module, "WATCHLIST_PATH", watchlist_path)
 
     settings = Settings(massive_api_key="test-api-key")
 
@@ -170,7 +205,7 @@ def test_settings_load_watchlist_from_file_by_default(tmp_path: Path, monkeypatc
 
 
 def test_settings_reject_missing_watchlist_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", tmp_path / "missing-watchlist.txt")
+    monkeypatch.setattr(settings_module, "WATCHLIST_PATH", tmp_path / "missing-watchlist.txt")
 
     with pytest.raises(ValueError, match="watchlist"):
         Settings(massive_api_key="test-api-key")
@@ -179,7 +214,7 @@ def test_settings_reject_missing_watchlist_file(monkeypatch: pytest.MonkeyPatch,
 def test_settings_reject_empty_watchlist_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     watchlist_path = tmp_path / "watchlist.txt"
     watchlist_path.write_text("\n\n", encoding="utf-8")
-    monkeypatch.setattr(runtime_module, "WATCHLIST_PATH", watchlist_path)
+    monkeypatch.setattr(settings_module, "WATCHLIST_PATH", watchlist_path)
 
     with pytest.raises(ValueError, match="watchlist"):
         Settings(massive_api_key="test-api-key")
@@ -221,7 +256,7 @@ def test_market_state_ranks_symbols_from_aggregate_updates() -> None:
     assert second_result.accepted is True
     assert ignored_result.accepted is False
 
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert snapshot["updatedAt"] == 1_100
     assert [card["symbol"] for card in snapshot["topGainers"]] == ["AAPL", "TSLA"]
@@ -251,7 +286,7 @@ def test_market_state_updates_last_point_when_price_is_unchanged() -> None:
         ),
     )
 
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert snapshot["topGainers"][0]["points"] == [{"timestamp": 1_100, "close": 105.0}]
 
@@ -271,7 +306,7 @@ def test_market_state_caps_point_history_at_300_items() -> None:
             ),
         )
 
-    points = market_state.snapshot()["topGainers"][0]["points"]
+    points = build_market_snapshot(market_state)["topGainers"][0]["points"]
 
     assert len(points) == 300
     assert points[0] == {"timestamp": 1, "close": 101.0}
@@ -305,7 +340,7 @@ def test_market_state_fills_pending_open_on_next_same_symbol_update() -> None:
         ),
     )
 
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert fill_result.accepted is True
     assert fill_result.filled_open is market_state.transactions[0]
@@ -367,7 +402,7 @@ def test_market_state_keeps_pending_open_until_same_symbol_update_arrives() -> N
         ),
     )
 
-    assert market_state.snapshot()["transactions"] == [
+    assert build_market_snapshot(market_state)["transactions"] == [
         {
             "transactionId": "tx-000001",
             "symbol": "AAPL",
@@ -399,7 +434,7 @@ def test_market_state_cancels_pending_open_and_returns_symbol_to_stock_grids() -
     accepted = market_state.open_transaction("AAPL", "LONG", submitted_at=1_050)
 
     canceled = market_state.cancel_open_transaction(accepted["transactionId"], submitted_at=1_075)
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert canceled == {"transactionId": accepted["transactionId"], "status": "CANCELED"}
     assert snapshot["updatedAt"] == 1_075
@@ -471,7 +506,7 @@ def test_market_state_fills_pending_close_on_next_same_symbol_update() -> None:
         ),
     )
 
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert fill_result.accepted is True
     assert fill_result.filled_open is None
@@ -533,7 +568,7 @@ def test_market_state_closes_short_transaction_with_short_profit_loss() -> None:
         ),
     )
 
-    assert market_state.snapshot()["transactions"][0]["profitLoss"] == 200.0
+    assert build_market_snapshot(market_state)["transactions"][0]["profitLoss"] == 200.0
 
 
 def test_market_state_freezes_closed_transaction_points_after_close() -> None:
@@ -569,7 +604,7 @@ def test_market_state_freezes_closed_transaction_points_after_close() -> None:
         ),
     )
 
-    closed_points = market_state.snapshot()["transactions"][0]["points"]
+    closed_points = build_market_snapshot(market_state)["transactions"][0]["points"]
 
     market_state.apply_update(
         settings.watchlist,
@@ -581,7 +616,7 @@ def test_market_state_freezes_closed_transaction_points_after_close() -> None:
         ),
     )
 
-    snapshot = market_state.snapshot()
+    snapshot = build_market_snapshot(market_state)
 
     assert snapshot["transactions"][0]["points"] == closed_points
     assert snapshot["transactions"][0]["points"][-1] == {"timestamp": 1_200, "close": 103.0}

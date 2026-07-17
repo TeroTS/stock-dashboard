@@ -18,7 +18,8 @@ from stock_dashboard_backend.market_state import (
     PositionType,
     TransactionCommandRejected,
 )
-from stock_dashboard_backend.runtime import Runtime, Settings
+from stock_dashboard_backend.runtime import Runtime
+from stock_dashboard_backend.settings import Settings
 
 LOCAL_FRONTEND_ORIGINS = (
     "http://localhost:5173",

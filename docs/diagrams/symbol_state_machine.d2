@@ -1,0 +1,34 @@
+title: State Machine: One Symbol Through the System (Steps 1-14)
+
+s1: "1. Startup\nBackend reads watchlist\nSymbol tracked, no state yet"
+s2: "2. First accepted update\nSymbol state created"
+s3: "3. Ranking phase\nCompared with all symbols"
+s4: "4. Frontend receives snapshot\nCard may render if top 5"
+s5: "5. Another accepted update\nSymbol state + points updated"
+s6: "6. User clicks Buy/Short\nPENDING_OPEN created"
+s7: "7. Hidden from stock cards\nShown as pending transaction"
+s8: "8. Next same-symbol update\nOPEN (entry filled)"
+s9: "9. More updates while open\nTransaction chart follows symbol"
+s10: "10. User clicks Sell/Cover\nPENDING_CLOSE"
+s11: "11. Next same-symbol update\nCLOSED (exit + P/L)"
+s12: "12. Symbol returns to stock cards\nClosed card stays visible"
+s13: "13. Closed chart freezes\nSymbol chart keeps moving"
+s14: "14. Cancel before open fill\nTransaction removed"
+
+s1 -> s2: first accepted update
+s2 -> s3: rank symbol
+s3 -> s4: build + push snapshot
+s4 -> s5: next accepted update
+s5 -> s3: rebuild ranking
+s5 -> s6: Buy or Short accepted
+s6 -> s7: active transaction exists
+s7 -> s8: next accepted update for symbol
+s7 -> s14: cancel pending open
+s14 -> s3: symbol returns to ranking
+s8 -> s9: further accepted updates
+s9 -> s10: Sell or Cover accepted
+s10 -> s11: next accepted update for symbol
+s11 -> s12: symbol no longer blocked
+s11 -> s13: later accepted updates
+s12 -> s3: symbol re-enters ranking
+s13 -> s3: symbol re-enters ranking

@@ -3,6 +3,8 @@
 from collections.abc import Iterable
 from typing import Any, Protocol
 
+from stock_dashboard_backend.market_state import ACTIVE_TRANSACTION_STATUSES
+
 
 class LinePointLike(Protocol):
     timestamp: int
@@ -29,6 +31,12 @@ class TransactionStateLike(Protocol):
     exit_price: float | None
     profit_loss: float | None
     points: list[LinePointLike]
+
+
+class MarketStateLike(Protocol):
+    updated_at: int
+    symbols: dict[str, SymbolStateLike]
+    transactions: list[TransactionStateLike]
 
 
 def line_point_payload(point: LinePointLike) -> dict[str, int | float]:
@@ -73,3 +81,22 @@ def build_snapshot(
         "topLosers": [symbol_state_payload(state) for state in top_losers],
         "transactions": [transaction_state_payload(transaction) for transaction in transactions],
     }
+
+
+def build_market_snapshot(state: MarketStateLike) -> dict[str, Any]:
+    active_symbols = {
+        transaction.symbol
+        for transaction in state.transactions
+        if transaction.status in ACTIVE_TRANSACTION_STATUSES
+    }
+    ranked = sorted(
+        (symbol for symbol in state.symbols.values() if symbol.symbol not in active_symbols),
+        key=lambda symbol: symbol.percent_change,
+    )
+
+    return build_snapshot(
+        updated_at=state.updated_at,
+        top_gainers=reversed(ranked[-5:]),
+        top_losers=ranked[:5],
+        transactions=state.transactions,
+    )

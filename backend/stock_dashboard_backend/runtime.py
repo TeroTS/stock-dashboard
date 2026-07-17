@@ -3,14 +3,9 @@
 import asyncio
 import contextlib
 import logging
-import os
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
 from massive import WebSocketClient
 
 from stock_dashboard_backend.market_state import (
@@ -23,68 +18,11 @@ from stock_dashboard_backend.massive_feed import (
     aggregate_update_from_message,
     create_massive_client,
 )
+from stock_dashboard_backend.settings import Settings
+from stock_dashboard_backend.snapshot_builder import build_market_snapshot
+from stock_dashboard_backend.snapshot_publisher import SnapshotPublisher
 
-WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 logger = logging.getLogger(__name__)
-
-
-# Load symbols from the repo-owned config file so the runtime and UI follow the same backend-owned list.
-def load_watchlist() -> tuple[str, ...]:
-    if not WATCHLIST_PATH.is_file():
-        raise ValueError(f"watchlist file is missing: {WATCHLIST_PATH}")
-
-    symbols: list[str] = []
-    seen: set[str] = set()
-
-    for line in WATCHLIST_PATH.read_text(encoding="utf-8").splitlines():
-        symbol = line.strip().upper()
-        if not symbol or symbol in seen:
-            continue
-        seen.add(symbol)
-        symbols.append(symbol)
-
-    if not symbols:
-        raise ValueError(f"watchlist file is empty: {WATCHLIST_PATH}")
-
-    return tuple(symbols)
-
-
-@dataclass(slots=True)
-class Settings:
-    """Runtime configuration for Massive credentials and watchlist scope."""
-
-    massive_api_key: str = field(default_factory=lambda: os.getenv("MASSIVE_API_KEY", ""))
-    watchlist: tuple[str, ...] = field(default_factory=load_watchlist)
-
-
-class SnapshotPublisher:
-    """Tracks websocket clients and fans out full snapshot payloads."""
-
-    def __init__(self) -> None:
-        self.connections: set[WebSocket] = set()
-
-    async def connect(self, websocket: WebSocket, snapshot: dict[str, Any] | None = None) -> None:
-        await websocket.accept()
-        self.connections.add(websocket)
-        if snapshot is not None:
-            await self._send_snapshot(websocket, snapshot)
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        self.connections.discard(websocket)
-
-    async def broadcast(self, snapshot: dict[str, Any]) -> None:
-        for websocket in list(self.connections):
-            await self._send_snapshot(websocket, snapshot)
-
-    async def _send_snapshot(self, websocket: WebSocket, snapshot: dict[str, Any]) -> None:
-        try:
-            await websocket.send_json(snapshot)
-        except (RuntimeError, WebSocketDisconnect, Exception) as error:
-            logger.warning(
-                "event=websocket_snapshot_send outcome=disconnected reason=send_failed error=%s",
-                error.__class__.__name__,
-            )
-            self.disconnect(websocket)
 
 
 class Runtime:
@@ -98,18 +36,12 @@ class Runtime:
     ) -> None:
         self.settings = settings
         self.market_state = MarketState()
-        self.publisher = SnapshotPublisher()
+        self.publisher = SnapshotPublisher(snapshot_interval_seconds=snapshot_interval_seconds)
         self._feed_task: asyncio.Task[None] | None = None
-        self._publish_task: asyncio.Task[None] | None = None
-        self._pending_snapshot: dict[str, Any] | None = None
-        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._massive_client: WebSocketClient | None = None
         self._massive_client_options = dict(massive_client_options or {})
-        self._snapshot_interval_seconds = snapshot_interval_seconds
 
     async def start(self) -> None:
-        self._event_loop = asyncio.get_running_loop()
-
         if not self.settings.massive_api_key:
             logger.error("event=massive_feed_start outcome=error reason=missing_api_key")
             raise ValueError("MASSIVE_API_KEY is required")
@@ -138,17 +70,13 @@ class Runtime:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._feed_task
 
-        if self._publish_task is not None:
-            self._publish_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._publish_task
+        await self.publisher.stop()
 
-    async def connect(self, websocket: WebSocket) -> None:
-        self._event_loop = asyncio.get_running_loop()
-        snapshot = self.market_state.snapshot() if self.market_state.symbols else None
+    async def connect(self, websocket) -> None:
+        snapshot = build_market_snapshot(self.market_state) if self.market_state.symbols else None
         await self.publisher.connect(websocket, snapshot)
 
-    def disconnect(self, websocket: WebSocket) -> None:
+    def disconnect(self, websocket) -> None:
         self.publisher.disconnect(websocket)
 
     async def apply_update(self, update: AggregateUpdate) -> None:
@@ -174,7 +102,7 @@ class Runtime:
                 result.filled_close.exit_price,
             )
 
-        self._schedule_snapshot_publish(self.market_state.snapshot())
+        self.publisher.publish(build_market_snapshot(self.market_state))
 
     async def open_transaction(
         self,
@@ -203,80 +131,48 @@ class Runtime:
             position_type,
             accepted["status"],
         )
-        self._schedule_snapshot_publish(self.market_state.snapshot())
+        self.publisher.publish(build_market_snapshot(self.market_state))
         return accepted
 
     async def close_transaction(self, transaction_id: str) -> dict[str, str]:
-        return await self._run_transaction_command(
-            command=lambda submitted_at: self.market_state.close_transaction(transaction_id, submitted_at),
-            rejected_log=(
+        try:
+            accepted = self.market_state.close_transaction(transaction_id, int(time.time() * 1000))
+        except TransactionCommandRejected as error:
+            logger.warning(
                 "event=transaction_close outcome=rejected transactionId=%s reason=%s errorCode=%s",
                 transaction_id,
-            ),
-            accepted_log=(
-                "event=transaction_close outcome=accepted transactionId=%s status=%s",
-            ),
-        )
-
-    async def cancel_open_transaction(self, transaction_id: str) -> dict[str, str]:
-        return await self._run_transaction_command(
-            command=lambda submitted_at: self.market_state.cancel_open_transaction(transaction_id, submitted_at),
-            rejected_log=(
-                "event=transaction_open_cancel outcome=rejected transactionId=%s reason=%s errorCode=%s",
-                transaction_id,
-            ),
-            accepted_log=(
-                "event=transaction_open_cancel outcome=accepted transactionId=%s status=%s",
-            ),
-        )
-
-    async def _run_transaction_command(
-        self,
-        command: Callable[[int], dict[str, str]],
-        rejected_log: tuple[str, str],
-        accepted_log: tuple[str],
-    ) -> dict[str, str]:
-        try:
-            accepted = command(int(time.time() * 1000))
-        except TransactionCommandRejected as error:
-            logger.warning(rejected_log[0], rejected_log[1], error.code, error.code)
+                error.code,
+                error.code,
+            )
             raise
 
-        logger.info(accepted_log[0], accepted["transactionId"], accepted["status"])
-        self._schedule_snapshot_publish(self.market_state.snapshot())
+        logger.info(
+            "event=transaction_close outcome=accepted transactionId=%s status=%s",
+            accepted["transactionId"],
+            accepted["status"],
+        )
+        self.publisher.publish(build_market_snapshot(self.market_state))
         return accepted
 
-    def _schedule_snapshot_publish(self, snapshot: dict[str, Any]) -> None:
-        current_loop = asyncio.get_running_loop()
-        if self._event_loop is None or self._event_loop.is_closed() or self._event_loop is current_loop:
-            self._event_loop = current_loop
-            self._enqueue_snapshot(snapshot)
-            return
+    async def cancel_open_transaction(self, transaction_id: str) -> dict[str, str]:
+        try:
+            accepted = self.market_state.cancel_open_transaction(transaction_id, int(time.time() * 1000))
+        except TransactionCommandRejected as error:
+            logger.warning(
+                "event=transaction_open_cancel outcome=rejected transactionId=%s reason=%s errorCode=%s",
+                transaction_id,
+                error.code,
+                error.code,
+            )
+            raise
 
-        future = asyncio.run_coroutine_threadsafe(
-            self._enqueue_snapshot_from_foreign_loop(snapshot),
-            self._event_loop,
+        logger.info(
+            "event=transaction_open_cancel outcome=accepted transactionId=%s status=%s",
+            accepted["transactionId"],
+            accepted["status"],
         )
-        future.result()
-
-    def _enqueue_snapshot(self, snapshot: dict[str, Any]) -> None:
-        self._pending_snapshot = snapshot
-        if self._publish_task is None or self._publish_task.done():
-            self._publish_task = asyncio.create_task(self._drain_snapshot_publish_queue())
-
-    async def _enqueue_snapshot_from_foreign_loop(self, snapshot: dict[str, Any]) -> None:
-        self._enqueue_snapshot(snapshot)
-
-    async def _drain_snapshot_publish_queue(self) -> None:
-        while self._pending_snapshot is not None:
-            snapshot = self._pending_snapshot
-            self._pending_snapshot = None
-            await self.publisher.broadcast(snapshot)
-
-            if self._pending_snapshot is None:
-                return
-
-            await asyncio.sleep(self._snapshot_interval_seconds)
+        self.publisher.publish(build_market_snapshot(self.market_state))
+        return accepted
 
     async def _handle_massive_messages(self, messages: list[Any]) -> None:
         for message in messages:
