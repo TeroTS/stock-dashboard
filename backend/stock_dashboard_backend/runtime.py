@@ -19,8 +19,8 @@ from stock_dashboard_backend.massive_feed import (
     create_massive_client,
 )
 from stock_dashboard_backend.settings import Settings
-from stock_dashboard_backend.snapshot_builder import build_market_snapshot
-from stock_dashboard_backend.snapshot_publisher import SnapshotPublisher
+from stock_dashboard_backend.snapshot.builder import build_market_snapshot
+from stock_dashboard_backend.snapshot.publisher import SnapshotPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,16 @@ class Runtime:
         settings: Settings,
         massive_client_options: dict[str, Any] | None = None,
         snapshot_interval_seconds: float = 0.1,
+        publisher_metrics_log_interval_seconds: float = 60.0,
     ) -> None:
         self.settings = settings
         self.market_state = MarketState()
         self.publisher = SnapshotPublisher(snapshot_interval_seconds=snapshot_interval_seconds)
         self._feed_task: asyncio.Task[None] | None = None
+        self._publisher_metrics_task: asyncio.Task[None] | None = None
         self._massive_client: WebSocketClient | None = None
         self._massive_client_options = dict(massive_client_options or {})
+        self._publisher_metrics_log_interval_seconds = publisher_metrics_log_interval_seconds
 
     async def start(self) -> None:
         if not self.settings.massive_api_key:
@@ -60,6 +63,8 @@ class Runtime:
             len(self.settings.watchlist),
         )
         self._feed_task = asyncio.create_task(self._run_massive_feed(self._massive_client))
+        if self._publisher_metrics_log_interval_seconds > 0:
+            self._publisher_metrics_task = asyncio.create_task(self._log_publisher_metrics_periodically())
 
     async def stop(self) -> None:
         if self._massive_client is not None and self._massive_client.websocket is not None:
@@ -69,6 +74,11 @@ class Runtime:
             self._feed_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._feed_task
+
+        if self._publisher_metrics_task is not None:
+            self._publisher_metrics_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._publisher_metrics_task
 
         await self.publisher.stop()
 
@@ -179,6 +189,20 @@ class Runtime:
             update = aggregate_update_from_message(message)
             if update is not None:
                 await self.apply_update(update)
+
+    async def _log_publisher_metrics_periodically(self) -> None:
+        while True:
+            await asyncio.sleep(self._publisher_metrics_log_interval_seconds)
+            metrics = self.publisher.metrics()
+            logger.info(
+                "event=snapshot_publisher_metrics outcome=observed publishCount=%s broadcastCount=%s overwriteCount=%s inputRatePerSecond=%s outputRatePerSecond=%s broadcastDurationMsHistogram=%s",
+                metrics["publishCount"],
+                metrics["broadcastCount"],
+                metrics["overwriteCount"],
+                metrics["inputRatePerSecond"],
+                metrics["outputRatePerSecond"],
+                metrics["broadcastDurationMsHistogram"],
+            )
 
     async def _run_massive_feed(self, client: WebSocketClient) -> None:
         try:

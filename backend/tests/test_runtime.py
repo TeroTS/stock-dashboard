@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,9 @@ import stock_dashboard_backend.runtime as runtime_module
 import stock_dashboard_backend.settings as settings_module
 from stock_dashboard_backend.market_state import AggregateUpdate, MarketState, TransactionCommandRejected
 from stock_dashboard_backend.settings import Settings
-from stock_dashboard_backend.snapshot_builder import build_market_snapshot
-from stock_dashboard_backend.snapshot_publisher import SnapshotPublisher
+from stock_dashboard_backend.snapshot.builder import build_market_snapshot
+from stock_dashboard_backend.snapshot.metrics import _PublisherMetrics
+from stock_dashboard_backend.snapshot.publisher import SnapshotPublisher
 
 
 class DisconnectingWebSocket:
@@ -64,6 +66,18 @@ class FastPublisher(SnapshotPublisher):
         self.started.set()
 
 
+class HangingMassiveClient:
+    def __init__(self) -> None:
+        self.websocket = None
+        self.closed = False
+
+    async def connect(self, _handler: object) -> None:
+        await asyncio.Event().wait()
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def test_snapshot_publisher_drops_socket_if_initial_snapshot_send_fails() -> None:
     publisher = SnapshotPublisher()
     websocket = DisconnectingWebSocket()
@@ -113,6 +127,87 @@ def test_snapshot_publisher_rejects_publish_from_another_event_loop() -> None:
         thread.join(timeout=1)
 
         assert str(error) == "SnapshotPublisher used from multiple event loops"
+
+    asyncio.run(scenario())
+
+
+def test_publisher_metrics_tracks_counts_rates_and_histogram() -> None:
+    metrics = _PublisherMetrics()
+
+    metrics.record_publish(now=1.0, overwrote_pending=False)
+    metrics.record_publish(now=1.1, overwrote_pending=True)
+    metrics.record_broadcast(now=1.2, duration_ms=4.0)
+
+    snapshot = metrics.snapshot(now=1.2)
+
+    assert snapshot["publishCount"] == 2
+    assert snapshot["broadcastCount"] == 1
+    assert snapshot["overwriteCount"] == 1
+    assert snapshot["inputRatePerSecond"] == 2
+    assert snapshot["outputRatePerSecond"] == 1
+    assert snapshot["broadcastDurationMsHistogram"]["<=5ms"] == 1
+
+    pruned_snapshot = metrics.snapshot(now=2.3)
+
+    assert pruned_snapshot["publishCount"] == 2
+    assert pruned_snapshot["broadcastCount"] == 1
+    assert pruned_snapshot["inputRatePerSecond"] == 0
+    assert pruned_snapshot["outputRatePerSecond"] == 0
+
+
+def test_snapshot_publisher_tracks_overwrites_rates_and_broadcast_duration_histogram() -> None:
+    async def scenario() -> None:
+        publisher = BlockingPublisher()
+
+        publisher.publish({"updatedAt": 1})
+        await asyncio.wait_for(publisher.started.wait(), timeout=0.05)
+
+        publisher.publish({"updatedAt": 2})
+        publisher.publish({"updatedAt": 3})
+        publisher.release.set()
+
+        await asyncio.wait_for(publisher._publish_task, timeout=0.2)
+
+        metrics = publisher.metrics()
+
+        assert metrics["publishCount"] == 3
+        assert metrics["broadcastCount"] == 2
+        assert metrics["overwriteCount"] == 1
+        assert metrics["inputRatePerSecond"] == 3
+        assert metrics["outputRatePerSecond"] == 2
+        assert sum(metrics["broadcastDurationMsHistogram"].values()) == 2
+
+    asyncio.run(scenario())
+
+
+def test_runtime_logs_snapshot_publisher_metrics_periodically(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        client = HangingMassiveClient()
+        monkeypatch.setattr(runtime_module, "create_massive_client", lambda **_: client)
+
+        runtime = runtime_module.Runtime(
+            Settings(massive_api_key="test-api-key", watchlist=("AAPL",)),
+            publisher_metrics_log_interval_seconds=0.01,
+        )
+        runtime.publisher.metrics = lambda: {
+            "publishCount": 3,
+            "broadcastCount": 2,
+            "overwriteCount": 1,
+            "inputRatePerSecond": 3,
+            "outputRatePerSecond": 2,
+            "broadcastDurationMsHistogram": {"<=1ms": 2},
+        }
+
+        with caplog.at_level(logging.INFO):
+            await runtime.start()
+            await asyncio.sleep(0.03)
+            await runtime.stop()
+
+        assert "event=snapshot_publisher_metrics outcome=observed publishCount=3 broadcastCount=2 overwriteCount=1 inputRatePerSecond=3 outputRatePerSecond=2" in caplog.text
+        assert "broadcastDurationMsHistogram={'<=1ms': 2}" in caplog.text
 
     asyncio.run(scenario())
 

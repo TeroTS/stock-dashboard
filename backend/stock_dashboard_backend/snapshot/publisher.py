@@ -3,9 +3,12 @@
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
+
+from stock_dashboard_backend.snapshot.metrics import _PublisherMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,7 @@ class SnapshotPublisher:
         self._pending_snapshot: dict[str, Any] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._snapshot_interval_seconds = snapshot_interval_seconds
+        self._metrics = _PublisherMetrics()
 
     async def connect(self, websocket: WebSocket, snapshot: dict[str, Any] | None = None) -> None:
         self._bind_to_running_loop()
@@ -32,6 +36,10 @@ class SnapshotPublisher:
 
     def publish(self, snapshot: dict[str, Any]) -> None:
         self._bind_to_running_loop()
+        self._metrics.record_publish(
+            now=time.monotonic(),
+            overwrote_pending=self._pending_snapshot is not None,
+        )
         self._pending_snapshot = snapshot
         if self._publish_task is None or self._publish_task.done():
             self._publish_task = asyncio.create_task(self._drain_snapshot_publish_queue())
@@ -41,6 +49,9 @@ class SnapshotPublisher:
             self._publish_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._publish_task
+
+    def metrics(self) -> dict[str, Any]:
+        return self._metrics.snapshot(now=time.monotonic())
 
     async def broadcast(self, snapshot: dict[str, Any]) -> None:
         for websocket in list(self.connections):
@@ -59,7 +70,12 @@ class SnapshotPublisher:
         while self._pending_snapshot is not None:
             snapshot = self._pending_snapshot
             self._pending_snapshot = None
+            started_at = time.perf_counter()
             await self.broadcast(snapshot)
+            self._metrics.record_broadcast(
+                now=time.monotonic(),
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+            )
 
             if self._pending_snapshot is None:
                 return
